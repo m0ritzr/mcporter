@@ -13,6 +13,7 @@
 - `pnpm dev`: Watches and incrementally rebuilds the library with TypeScript.
 - `pnpm clean`: Removes `dist/` so you can verify fresh builds.
 - `tmux new-session -- pnpm mcp:list`: Exercise the CLI in a resilient terminal; tmux makes it easy to spot stalls or hung servers.
+- `gh run watch`: Follow the latest GitHub Actions run logs (requires `gh auth login`); pair with `gh run view --log` when debugging CI.
 
 ## Coding Style & Naming Conventions
 - TypeScript files use 2-space indentation, modern ES module syntax, and `strict` compiler settings.
