@@ -17,6 +17,13 @@ type ServerProxy = {
 	listTools(options?: ListToolsOptions): Promise<ServerToolInfo[]>;
 };
 
+type ToolSchemaInfo = {
+	schema: Record<string, unknown>;
+	orderedKeys: string[];
+	requiredKeys: string[];
+	propertySet: Set<string>;
+};
+
 function defaultToolNameMapper(propertyKey: string | symbol): string {
 	if (typeof propertyKey !== "string") {
 		throw new TypeError("Tool name must be a string when using server proxy.");
@@ -27,62 +34,93 @@ function defaultToolNameMapper(propertyKey: string | symbol): string {
 		.toLowerCase();
 }
 
-function applyDefaults(schema: unknown, args: ToolArguments): ToolArguments {
-	if (
-		!schema ||
-		typeof schema !== "object" ||
-		(schema as Record<string, unknown>).type !== "object"
-	) {
-		return args;
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function createToolSchemaInfo(schemaRaw: unknown): ToolSchemaInfo | undefined {
+	if (!schemaRaw || typeof schemaRaw !== "object") {
+		return undefined;
+	}
+	const schema = schemaRaw as Record<string, unknown>;
+	const propertiesRaw = schema.properties;
+	const propertyKeys =
+		propertiesRaw && typeof propertiesRaw === "object"
+			? Object.keys(propertiesRaw as Record<string, unknown>)
+			: [];
+	const requiredKeys = Array.isArray(schema.required)
+		? (schema.required as string[])
+		: [];
+	const orderedKeys: string[] = [];
+	const seen = new Set<string>();
+
+	for (const key of requiredKeys) {
+		if (typeof key === "string" && !seen.has(key)) {
+			orderedKeys.push(key);
+			seen.add(key);
+		}
 	}
 
-	const properties = (schema as Record<string, unknown>).properties;
-	if (!properties || typeof properties !== "object") {
-		return args;
+	for (const key of propertyKeys) {
+		if (!seen.has(key)) {
+			orderedKeys.push(key);
+			seen.add(key);
+		}
 	}
 
-	if (!args || typeof args !== "object") {
-		args = {} as ToolArguments;
-	}
-
-	const source: Record<string, unknown> = {
-		...(args as Record<string, unknown>),
+	return {
+		schema,
+		orderedKeys,
+		requiredKeys,
+		propertySet: new Set([...propertyKeys, ...requiredKeys]),
 	};
+}
 
-	for (const [key, value] of Object.entries(properties)) {
+function applyDefaults(
+	meta: ToolSchemaInfo,
+	args?: ToolArguments,
+): ToolArguments {
+	const propertiesRaw = meta.schema.properties;
+	if (!propertiesRaw || typeof propertiesRaw !== "object") {
+		return args;
+	}
+
+	const result: Record<string, unknown> = isPlainObject(args)
+		? { ...(args as Record<string, unknown>) }
+		: {};
+
+	for (const [key, value] of Object.entries(
+		propertiesRaw as Record<string, unknown>,
+	)) {
 		if (
 			value &&
 			typeof value === "object" &&
 			"default" in (value as Record<string, unknown>) &&
-			source[key] === undefined
+			result[key] === undefined
 		) {
-			source[key] = (value as Record<string, unknown>).default as unknown;
+			result[key] = (value as Record<string, unknown>).default as unknown;
 		}
 	}
 
-	return source as ToolArguments;
+	if (Object.keys(result).length === 0 && !isPlainObject(args)) {
+		return args;
+	}
+
+	return result as ToolArguments;
 }
 
-function validateRequired(schema: unknown, args: ToolArguments): void {
-	if (
-		!schema ||
-		typeof schema !== "object" ||
-		(schema as Record<string, unknown>).type !== "object"
-	) {
+function validateRequired(meta: ToolSchemaInfo, args?: ToolArguments): void {
+	if (meta.requiredKeys.length === 0) {
 		return;
 	}
-	const required = (schema as Record<string, unknown>).required;
-	if (!Array.isArray(required) || required.length === 0) {
-		return;
+	if (!isPlainObject(args)) {
+		throw new Error(
+			`Missing required arguments: ${meta.requiredKeys.join(", ")}`,
+		);
 	}
-	if (!args || typeof args !== "object") {
-		throw new Error(`Missing required arguments: ${required.join(", ")}`);
-	}
-
-	const missing = required.filter(
+	const missing = meta.requiredKeys.filter(
 		(key) => (args as Record<string, unknown>)[key] === undefined,
 	);
-
 	if (missing.length > 0) {
 		throw new Error(`Missing required arguments: ${missing.join(", ")}`);
 	}
@@ -95,10 +133,12 @@ export function createServerProxy(
 		property: string | symbol,
 	) => string = defaultToolNameMapper,
 ): ServerProxy {
-	const toolSchemaCache = new Map<string, unknown>();
+	const toolSchemaCache = new Map<string, ToolSchemaInfo>();
 	let schemaFetch: Promise<void> | null = null;
 
-	async function ensureMetadata(toolName: string): Promise<unknown> {
+	async function ensureMetadata(
+		toolName: string,
+	): Promise<ToolSchemaInfo | undefined> {
 		if (toolSchemaCache.has(toolName)) {
 			return toolSchemaCache.get(toolName);
 		}
@@ -108,12 +148,13 @@ export function createServerProxy(
 				.listTools(serverName, { includeSchema: true })
 				.then((tools) => {
 					for (const tool of tools) {
-						const schema = tool.inputSchema;
-						if (schema) {
-							toolSchemaCache.set(tool.name, schema);
-							const normalized = mapPropertyToTool(tool.name);
-							toolSchemaCache.set(normalized, schema);
+						const info = createToolSchemaInfo(tool.inputSchema);
+						if (!info) {
+							continue;
 						}
+						toolSchemaCache.set(tool.name, info);
+						const normalized = mapPropertyToTool(tool.name);
+						toolSchemaCache.set(normalized, info);
 					}
 				})
 				.catch((error) => {
@@ -147,45 +188,104 @@ export function createServerProxy(
 			const toolName = mapPropertyToTool(property);
 
 			return async (...callArgs: unknown[]) => {
-				const [firstArg, secondArg] = callArgs;
-				const finalOptions: ToolCallOptions = {};
-
-				if (typeof secondArg === "object" && secondArg !== null) {
-					Object.assign(finalOptions, secondArg as ToolCallOptions);
+				let schemaInfo: ToolSchemaInfo | undefined;
+				try {
+					schemaInfo = await ensureMetadata(toolName);
+				} catch {
+					schemaInfo = undefined;
 				}
 
-				if (firstArg !== undefined) {
-					if (
-						typeof firstArg === "object" &&
-						firstArg !== null &&
-						"args" in (firstArg as Record<string, unknown>) &&
-						secondArg === undefined
-					) {
-						Object.assign(finalOptions, firstArg as ToolCallOptions);
+				const positional: unknown[] = [];
+				const argsAccumulator: Record<string, unknown> = {};
+				const optionsAccumulator: ToolCallOptions = {};
+
+				for (const arg of callArgs) {
+					if (isPlainObject(arg)) {
+						const keys = Object.keys(arg);
+						const treatAsArgs =
+							schemaInfo &&
+							keys.length > 0 &&
+							keys.every((key) => schemaInfo!.propertySet.has(key));
+
+						if (treatAsArgs) {
+							Object.assign(argsAccumulator, arg as Record<string, unknown>);
+						} else {
+							Object.assign(optionsAccumulator, arg as ToolCallOptions);
+						}
 					} else {
-						finalOptions.args = firstArg as ToolArguments;
+						positional.push(arg);
 					}
 				}
 
-				let schema: unknown;
-				try {
-					schema = await ensureMetadata(toolName);
-				} catch {
-					schema = undefined;
+				const explicitArgs = optionsAccumulator.args as
+					| ToolArguments
+					| undefined;
+				if (explicitArgs !== undefined) {
+					delete (optionsAccumulator as Record<string, unknown>).args;
 				}
-				if (schema) {
-					if (finalOptions.args !== undefined) {
-						finalOptions.args = applyDefaults(
-							schema,
-							finalOptions.args as ToolArguments,
+
+				const finalOptions: ToolCallOptions = { ...optionsAccumulator };
+				let combinedArgs: ToolArguments | undefined = explicitArgs;
+
+				if (schemaInfo) {
+					if (positional.length > schemaInfo.orderedKeys.length) {
+						throw new Error(
+							`Too many positional arguments for tool "${toolName}"`,
 						);
+					}
+
+					if (positional.length > 0) {
+						const baseArgs = isPlainObject(combinedArgs)
+							? { ...(combinedArgs as Record<string, unknown>) }
+							: {};
+						positional.forEach((value, idx) => {
+							const key = schemaInfo!.orderedKeys[idx];
+							if (key) {
+								baseArgs[key] = value;
+							}
+						});
+						combinedArgs = baseArgs as ToolArguments;
+					}
+
+					if (Object.keys(argsAccumulator).length > 0) {
+						const baseArgs = isPlainObject(combinedArgs)
+							? { ...(combinedArgs as Record<string, unknown>) }
+							: {};
+						Object.assign(baseArgs, argsAccumulator);
+						combinedArgs = baseArgs as ToolArguments;
+					}
+
+					if (combinedArgs !== undefined) {
+						combinedArgs = applyDefaults(schemaInfo, combinedArgs);
+						finalOptions.args = combinedArgs;
 					} else {
-						const defaults = applyDefaults(schema, undefined as ToolArguments);
-						if (defaults && typeof defaults === "object") {
+						const defaults = applyDefaults(schemaInfo, undefined);
+						if (isPlainObject(defaults) && Object.keys(defaults).length > 0) {
 							finalOptions.args = defaults;
 						}
 					}
-					validateRequired(schema, finalOptions.args as ToolArguments);
+
+					validateRequired(schemaInfo, finalOptions.args as ToolArguments);
+				} else {
+					if (positional.length > 0 && combinedArgs === undefined) {
+						combinedArgs = (
+							positional.length === 1
+								? positional[0]
+								: (positional as unknown[])
+						) as ToolArguments;
+					}
+
+					if (Object.keys(argsAccumulator).length > 0) {
+						const baseArgs = isPlainObject(combinedArgs)
+							? { ...(combinedArgs as Record<string, unknown>) }
+							: {};
+						Object.assign(baseArgs, argsAccumulator);
+						combinedArgs = baseArgs as ToolArguments;
+					}
+
+					if (combinedArgs !== undefined) {
+						finalOptions.args = combinedArgs;
+					}
 				}
 
 				const result = await runtime.callTool(

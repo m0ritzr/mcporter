@@ -11,3 +11,4 @@ export type {
 } from "./runtime.js";
 export { callOnce, createRuntime } from "./runtime.js";
 export { createServerProxy } from "./server-proxy.js";
+export { createContext7Client } from "./context7-client.js";

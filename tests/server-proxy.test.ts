@@ -24,7 +24,15 @@ function createMockRuntime(
 
 describe("createServerProxy", () => {
 	it("maps camelCase property names to kebab-case tool names", async () => {
-		const runtime = createMockRuntime();
+		const runtime = createMockRuntime({
+			"resolve-library-id": {
+				type: "object",
+				properties: {
+					libraryName: { type: "string" },
+				},
+				required: ["libraryName"],
+			},
+		});
 		const context7 = createServerProxy(
 			runtime as unknown as Runtime,
 			"context7",
@@ -44,7 +52,15 @@ describe("createServerProxy", () => {
 	});
 
 	it("merges args and options when both are provided", async () => {
-		const runtime = createMockRuntime();
+		const runtime = createMockRuntime({
+			"some-tool": {
+				type: "object",
+				properties: {
+					foo: { type: "string" },
+				},
+				required: ["foo"],
+			},
+		});
 		const proxy = createServerProxy(
 			runtime as unknown as Runtime,
 			"foo",
@@ -130,8 +146,102 @@ describe("createServerProxy", () => {
 		const result = await fn({ foo: "bar" });
 
 		expect(runtime.callTool).toHaveBeenCalledWith("foo", "some-tool", {
-			args: { foo: "bar" },
+			foo: "bar",
 		});
-		expect(result.raw).toEqual({ args: { foo: "bar" } });
+		expect(result.raw).toEqual({ foo: "bar" });
+	});
+
+	it("maps primitive positional arguments onto required schema fields", async () => {
+		const runtime = createMockRuntime({
+			"get-library-docs": {
+				type: "object",
+				properties: {
+					context7CompatibleLibraryID: { type: "string" },
+					format: { type: "string", default: "markdown" },
+				},
+				required: ["context7CompatibleLibraryID"],
+			},
+		});
+
+		const context7 = createServerProxy(
+			runtime as unknown as Runtime,
+			"context7",
+		) as Record<string, unknown>;
+
+		const fn = context7.getLibraryDocs as (arg: unknown) => Promise<CallResult>;
+		const result = await fn("/ids/react");
+
+		expect(runtime.callTool).toHaveBeenCalledWith(
+			"context7",
+			"get-library-docs",
+			{
+				args: {
+					context7CompatibleLibraryID: "/ids/react",
+					format: "markdown",
+				},
+			},
+		);
+		expect(result.raw).toEqual({
+			args: {
+				context7CompatibleLibraryID: "/ids/react",
+				format: "markdown",
+			},
+		});
+	});
+
+	it("supports multi-field positional arguments with additional arg bags", async () => {
+		const runtime = createMockRuntime({
+			firecrawl_scrape: {
+				type: "object",
+				properties: {
+					url: { type: "string" },
+					formats: { type: ["string", "array"], default: "markdown" },
+					waitFor: { type: "number" },
+					mobile: { type: "boolean", default: false },
+				},
+				required: ["url"],
+			},
+		});
+
+		const firecrawl = createServerProxy(
+			runtime as unknown as Runtime,
+			"firecrawl",
+		) as Record<string, unknown>;
+
+		const fn = firecrawl.firecrawlScrape as (
+			url: unknown,
+			formats: unknown,
+			args: unknown,
+			options: unknown,
+		) => Promise<CallResult>;
+		const result = await fn(
+			"https://example.com/docs",
+			["markdown", "html"],
+			{ waitFor: 5000 },
+			{ tailLog: true },
+		);
+
+		expect(runtime.callTool).toHaveBeenCalledWith(
+			"firecrawl",
+			"firecrawl-scrape",
+			{
+				args: {
+					url: "https://example.com/docs",
+					formats: ["markdown", "html"],
+					waitFor: 5000,
+					mobile: false,
+				},
+				tailLog: true,
+			},
+		);
+		expect(result.raw).toEqual({
+			args: {
+				url: "https://example.com/docs",
+				formats: ["markdown", "html"],
+				waitFor: 5000,
+				mobile: false,
+			},
+			tailLog: true,
+		});
 	});
 });

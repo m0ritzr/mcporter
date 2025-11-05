@@ -111,10 +111,8 @@ import { createRuntime, createServerProxy } from "mcp-runtime";
 const runtime = await createRuntime();
 const context7 = createServerProxy(runtime, "context7");
 
-const search = await context7.resolveLibraryId({ libraryName: "react" });
-const docs = await context7.getLibraryDocs({
-	context7CompatibleLibraryID: "/websites/react_dev",
-});
+const search = await context7.resolveLibraryId("react");
+const docs = await context7.getLibraryDocs("react"); // maps to required schema fields
 
 console.log(search.text()); // "Available Libraries ..."
 console.log(docs.markdown()); // markdown excerpt
@@ -127,8 +125,37 @@ Every property access maps from camelCase to the underlying tool name automatica
 - merges JSON-schema defaults so you only specify overrides;
 - validates required arguments and throws helpful errors when fields are missing;
 - returns a `CallResult` wrapper with `.raw`, `.text()`, `.markdown()`, `.json()`, and other helpers for quick post-processing.
+- accepts primitives, tuples, or plain objects and routes them onto required schema fields in order (multi-argument tools like Firecrawl’s `scrape` work with positional calls);
+
+```ts
+const firecrawl = createServerProxy(runtime, "firecrawl");
+await firecrawl.firecrawlScrape(
+	"https://example.com/docs",
+	["markdown", "html"], // 2nd required/optional field from schema
+	{ waitFor: 5000 }, // merged as args
+	{ tailLog: true }, // treated as call options
+);
+```
 
 You can still drop down to `context7.call("resolve-library-id", { args: { ... } })` when you need explicit control.
+
+### High-level helpers
+
+Some servers benefit from composable workflows. `createContext7Client` layers on top of the proxy to resolve an ID and fetch docs in one call:
+
+```ts
+import { createContext7Client, createRuntime } from "mcp-runtime";
+
+const runtime = await createRuntime();
+const context7 = createContext7Client(runtime);
+
+const docs = await context7.getDocs("react"); // resolves ID + downloads markdown
+console.log(docs.markdown());
+
+await runtime.close();
+```
+
+The helper still returns a `CallResult`, so you can opt into `.json()` / `.text()` as needed.
 
 ## Testing & CI
 
