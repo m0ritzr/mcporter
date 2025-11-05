@@ -121,17 +121,16 @@ Want a single file you can ship to agents or drop on a PATH? Bundle it:
 npx mcp-runtime generate-cli \
   --server '{"name":"context7","command":"https://mcp.context7.com/mcp"}' \
   --runtime bun \
-  --bundle dist/context7-cli.js \
   --compile dist/context7-cli
 
 # Grant execute permission once, then run anywhere Bun is installed
-chmod +x dist/context7-cli.js
-CONTEXT7_API_KEY=sk-... ./dist/context7-cli.js resolve-library-id react
+chmod +x dist/context7-cli
+CONTEXT7_API_KEY=sk-... ./dist/context7-cli resolve-library-id react
 
 # The same command works with Node by omitting --runtime bun (bundles as CJS)
 ```
 
-Generated CLIs embed the discovered schemas, so subsequent executions skip `listTools` round-trips and hit the network only for real tool calls. Use `--bundle` without a value to auto-name the output, and pass `--timeout` to raise the per-call default (30s). Add `--minify` to shrink bundled output, and `--compile [path]` (Bun only) to run `bun build --compile` and emit a native executable.
+Generated CLIs embed the discovered schemas, so subsequent executions skip `listTools` round-trips and hit the network only for real tool calls. Use `--bundle` without a value to auto-name the output, and pass `--timeout` to raise the per-call default (30s). Add `--minify` to shrink bundled output, and `--compile [path]` (Bun only) to run `bun build --compile` and emit a native executable—no explicit `--bundle` flag is required when `--compile` is present.
 
 ## Composable Workflows
 

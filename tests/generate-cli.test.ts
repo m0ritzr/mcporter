@@ -88,8 +88,6 @@ describe("generateCli", () => {
 		});
 		await fs.mkdir(path.join(tmpDir, "schema-cache"), { recursive: true });
 		const outputPath = path.join(tmpDir, "integration-cli.ts");
-		const bundlePath = path.join(tmpDir, "integration-cli.cjs");
-
 		const exec = await import("node:child_process");
 		await new Promise<void>((resolve, reject) => {
 			exec.exec("pnpm build", execOptions(), (error) => {
@@ -109,15 +107,16 @@ describe("generateCli", () => {
 		} = await generateCli({
 			serverRef: inline,
 			outputPath,
-			bundle: bundlePath,
 			runtime: "bun",
 			timeoutMs: 5_000,
 			minify: true,
 			compile: compilePathTarget,
 		});
+		const expectedBundlePath = path.join(tmpDir, "integration-cli.js");
 		if (!bundled) {
-			throw new Error("Expected bundled output path when --bundle is provided");
+			throw new Error("Expected bundled output when --compile is provided");
 		}
+		expect(bundled).toBe(expectedBundlePath);
 		if (!compilePath) {
 			throw new Error("Expected compile output when --compile is provided");
 		}
@@ -140,7 +139,11 @@ describe("generateCli", () => {
 					bundled,
 					["list-tools"],
 					execOptions(),
-					(error, stdout, stderr) => {
+					(
+						error: import("node:child_process").ExecFileException | null,
+						stdout: string,
+						stderr: string,
+					) => {
 						if (error) {
 							reject(error);
 							return;
@@ -160,7 +163,11 @@ describe("generateCli", () => {
 				bundled,
 				["--help"],
 				execOptions(),
-				(error, stdout, stderr) => {
+				(
+					error: import("node:child_process").ExecFileException | null,
+					stdout: string,
+					stderr: string,
+				) => {
 					if (error) {
 						reject(error);
 						return;
@@ -181,7 +188,11 @@ describe("generateCli", () => {
 				bundled,
 				["add", "--a", "2", "--b", "3", "--output", "json"],
 				execOptions(),
-				(error, stdout, stderr) => {
+				(
+					error: import("node:child_process").ExecFileException | null,
+					stdout: string,
+					stderr: string,
+				) => {
 					if (error) {
 						reject(error);
 						return;
@@ -200,7 +211,11 @@ describe("generateCli", () => {
 				compilePath,
 				["--help"],
 				execOptions(),
-				(error, stdout, stderr) => {
+				(
+					error: import("node:child_process").ExecFileException | null,
+					stdout: string,
+					stderr: string,
+				) => {
 					if (error) {
 						reject(error);
 						return;
@@ -234,5 +249,9 @@ async function exists(file: string | undefined): Promise<boolean> {
 }
 
 function execOptions() {
-	return { cwd: process.cwd(), env: { ...process.env, NODE_NO_WARNINGS: "1" } };
+	return {
+		cwd: process.cwd(),
+		env: { ...process.env, NODE_NO_WARNINGS: "1" },
+		encoding: "utf8" as const,
+	};
 }

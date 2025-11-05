@@ -74,10 +74,12 @@ export async function generateCli(
 	let bundlePath: string | undefined;
 	let compilePath: string | undefined;
 	if (shouldBundle) {
-		const targetPath =
-			typeof options.bundle === "string"
-				? options.bundle
-				: replaceExtension(outputPath, runtimeKind === "bun" ? "js" : "cjs");
+		const targetPath = resolveBundleTarget({
+			bundle: options.bundle,
+			compile: options.compile,
+			outputPath,
+			runtimeKind,
+		});
 		bundlePath = await bundleOutput({
 			sourcePath: outputPath,
 			runtimeKind,
@@ -89,10 +91,7 @@ export async function generateCli(
 			if (runtimeKind !== "bun") {
 				throw new Error("--compile is only supported when --runtime bun");
 			}
-			const compileTarget =
-				typeof options.compile === "string"
-					? options.compile
-					: removeExtension(bundlePath);
+			const compileTarget = computeCompileTarget(options.compile, bundlePath);
 			await compileBundleWithBun(bundlePath, compileTarget);
 			compilePath = compileTarget;
 		}
@@ -737,11 +736,6 @@ function replaceExtension(file: string, extension: string): string {
 	return path.join(dirname, `${basename}.${extension}`);
 }
 
-function removeExtension(file: string): string {
-	const parsed = path.parse(file);
-	return path.join(parsed.dir, parsed.name);
-}
-
 async function compileBundleWithBun(
 	bundlePath: string,
 	outputPath: string,
@@ -782,4 +776,45 @@ async function compileBundleWithBun(
 	});
 
 	await fs.chmod(outputPath, 0o755);
+}
+
+// resolveBundleTarget normalizes bundle path selection when --bundle/--compile are combined.
+function resolveBundleTarget({
+	bundle,
+	compile,
+	outputPath,
+	runtimeKind,
+}: {
+	bundle?: boolean | string;
+	compile?: boolean | string;
+	outputPath: string;
+	runtimeKind: "node" | "bun";
+}): string {
+	const defaultExt = runtimeKind === "bun" ? ".js" : ".cjs";
+	if (typeof bundle === "string") {
+		return bundle;
+	}
+	if (bundle) {
+		return replaceExtension(outputPath, defaultExt.slice(1));
+	}
+	if (typeof compile === "string") {
+		const ext = path.extname(compile);
+		const base = ext
+			? path.join(path.dirname(compile), path.basename(compile, ext))
+			: compile;
+		return `${base}${defaultExt}`;
+	}
+	return replaceExtension(outputPath, defaultExt.slice(1));
+}
+
+// computeCompileTarget picks the final binary output location, defaulting to the bundle basename.
+function computeCompileTarget(
+	compileOption: GenerateCliOptions["compile"],
+	bundlePath: string,
+): string {
+	if (typeof compileOption === "string") {
+		return compileOption;
+	}
+	const parsed = path.parse(bundlePath);
+	return path.join(parsed.dir, parsed.name);
 }
