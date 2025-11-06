@@ -23,6 +23,7 @@ function isOutputFormat(value: string): value is OutputFormat {
 }
 
 export function parseCallArguments(args: string[]): CallArgsParseResult {
+  // Maintain backwards compatibility with legacy positional + key=value forms.
   const result: CallArgsParseResult = { args: {}, tailLog: false, output: 'auto' };
   const positional: string[] = [];
   let index = 0;
@@ -306,6 +307,7 @@ function printRaw(raw: unknown): void {
 }
 
 function tailLogIfRequested(result: unknown, enabled: boolean): void {
+  // Some servers still encode log paths inside the payload; surface a short tail when requested.
   if (!enabled) {
     return;
   }

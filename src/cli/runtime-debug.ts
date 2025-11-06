@@ -122,6 +122,8 @@ export function terminateChildProcesses(label: string): void {
         // ignore
       }
     }
+    // When DEBUG_HANG is enabled we leave extra breadcrumbs so developers can see
+    // which transports required forceful teardown before Node would exit.
     if (DEBUG_HANG) {
       const killed = candidate.kill?.('SIGKILL') ?? false;
       if (candidate.pid) {

@@ -88,7 +88,7 @@ export async function handleList(
           console.log(rendered.line);
           const remaining = servers.length - completedCount;
           if (remaining > 0) {
-            // Keep the spinner focused on progress instead of replaying the last completed server.
+            // Report remaining count instead of parroting the last server to avoid noisy duplicate lines.
             spinner.text = `Listing servers… ${completedCount}/${servers.length} · remaining: ${remaining}`;
             spinner.start();
           }
