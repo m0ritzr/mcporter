@@ -1,4 +1,6 @@
 import ora from 'ora';
+import type { ServerToolInfo } from '../runtime.js';
+import type { GeneratedOption } from './generate/tools.js';
 import { extractOptions } from './generate/tools.js';
 import type { ListSummaryResult, StatusCategory } from './list-format.js';
 import { formatSourceSuffix, renderServerListRow } from './list-format.js';
@@ -150,38 +152,7 @@ export async function handleList(
       return;
     }
     for (const tool of tools) {
-      console.log(`  ${cyanText(tool.name)}`);
-      if (tool.description) {
-        console.log(`    ${dimText('Description:')} ${tool.description}`);
-      }
-      const options = extractOptions(tool);
-      const requiredOptions = options.filter((option) => option.required);
-      const optionalOptions = options.filter((option) => !option.required);
-      if (requiredOptions.length > 0) {
-        console.log(
-          `    ${dimText('Required:')} ${requiredOptions
-            .map((option) => `--${option.cliName} ${option.placeholder}`)
-            .join(' ')}`
-        );
-      } else {
-        console.log(`    ${dimText('Required:')} <none>`);
-      }
-      if (optionalOptions.length > 0) {
-        console.log(
-          `    ${dimText('Optional:')} ${optionalOptions
-            .map((option) => `--${option.cliName} ${option.placeholder}`)
-            .join(' ')}`
-        );
-      }
-      const usageParts = [`mcporter call ${target}.${tool.name}`];
-      for (const option of requiredOptions) {
-        usageParts.push(`--${option.cliName} ${option.placeholder}`);
-      }
-      console.log(`    ${dimText('Usage:')} ${usageParts.join(' ')}`);
-      if (flags.schema && tool.inputSchema) {
-        console.log(indent(JSON.stringify(tool.inputSchema, null, 2), '      '));
-      }
-      console.log('');
+      printToolDetail(target, tool, Boolean(flags.schema));
     }
     return;
   } catch (error) {
@@ -197,4 +168,52 @@ function indent(text: string, pad: string): string {
     .split('\n')
     .map((line) => pad + line)
     .join('\n');
+}
+
+function printToolDetail(
+  serverName: string,
+  tool: { name: string; description?: string; inputSchema?: unknown },
+  includeSchema: boolean
+): void {
+  const options = extractOptions(tool as ServerToolInfo);
+  const header = formatToolSignature(tool.name, tool.description ?? '', options);
+  console.log(`  ${header}`);
+
+  const usageParts = [`mcporter call ${serverName}.${tool.name}`];
+  for (const option of options.filter((entry) => entry.required)) {
+    usageParts.push(`--${option.cliName} ${option.placeholder}`);
+  }
+  console.log(`    ${dimText('Usage:')} ${usageParts.join(' ')}`);
+
+  if (includeSchema && tool.inputSchema) {
+    console.log(indent(JSON.stringify(tool.inputSchema, null, 2), '      '));
+  }
+  console.log('');
+}
+
+function formatToolSignature(name: string, description: string, options: GeneratedOption[]): string {
+  const parameters = formatParameterList(options);
+  const descriptionSuffix = description ? ` — ${description}` : '';
+  return `${cyanText(name)}${parameters}${descriptionSuffix}`;
+}
+
+function formatParameterList(options: GeneratedOption[]): string {
+  if (options.length === 0) {
+    return '()';
+  }
+  const segments = options.map((option) => {
+    const formatted = formatParameter(option);
+    return option.required ? formatted : `[${formatted}]`;
+  });
+  return `(${segments.join(', ')})`;
+}
+
+function formatParameter(option: GeneratedOption): string {
+  const raw =
+    option.placeholder.startsWith('<') && option.placeholder.endsWith('>')
+      ? option.placeholder.slice(1, -1)
+      : option.placeholder;
+  const detail = raw.includes(':') ? raw.split(':').slice(1).join(':') : raw;
+  const trimmedDetail = detail ? dimText(detail) : '';
+  return trimmedDetail ? `${option.property}:${trimmedDetail}` : option.property;
 }
