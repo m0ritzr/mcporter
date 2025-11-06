@@ -156,9 +156,17 @@ export async function handleList(
       ? `HTTP ${definition.command.url instanceof URL ? definition.command.url.href : String(definition.command.url)}`
       : `STDIO ${[definition.command.command, ...(definition.command.args ?? [])].join(' ')}`.trim();
   const descriptionText = definition.description ?? '<none>';
-  const trailingSummary = `${descriptionText}${transportSummary ? ` [${transportSummary}]` : ''}`;
+  const trailingSummary = `${descriptionText}`;
   const headerLabel = boldText(target);
-  console.log(`${headerLabel} ${extraDimText(`- ${trailingSummary}`)}`);
+  console.log(`${headerLabel}`);
+  const details: string[] = [extraDimText(trailingSummary)];
+  if (transportSummary) {
+    details.push(extraDimText(transportSummary));
+  }
+  if (sourcePath) {
+    details.push(extraDimText(`source: ${sourcePath.replace(/^\s+Source: /, '')}`));
+  }
+  console.log(`  ${details.join(extraDimText(' · '))}`);
   console.log('');
   if (sourcePath) {
     console.log(`  Source: ${sourcePath}`);

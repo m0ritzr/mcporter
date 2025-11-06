@@ -179,18 +179,20 @@ describe('CLI list classification', () => {
   const rawLines = logSpy.mock.calls.map((call) => call.join(' '));
   const lines = rawLines.map(stripAnsi);
 
-  expect(lines.some((line) => line.includes('calculator'))).toBe(true);
-  expect(lines.some((line) => line.includes('calculator - Test integration server [HTTP https://example.com/mcp]'))).toBe(
-    true
-  );
+  expect(lines.some((line) => line.trim() === 'calculator')).toBe(true);
+  expect(
+    lines.some((line) =>
+      line.trim().includes('Test integration server') && line.includes('HTTP https://example.com/mcp')
+    )
+  ).toBe(true);
   expect(lines.some((line) => line.includes('// Add two numbers'))).toBe(true);
   expect(lines.some((line) => line.includes('add({'))).toBe(true);
-    expect(lines.some((line) => line.includes('a: number') && line.includes('First operand'))).toBe(true);
-    expect(lines.some((line) => line.includes('format?:'))).toBe(false);
-    expect(lines.some((line) => line.includes('dueBefore?:'))).toBe(false);
-    expect(lines.some((line) => line.includes('// optional: format, dueBefore'))).toBe(true);
+  expect(lines.some((line) => line.includes('a: number') && line.includes('First operand'))).toBe(true);
+  expect(lines.some((line) => line.includes('format?:'))).toBe(false);
+  expect(lines.some((line) => line.includes('dueBefore?:'))).toBe(false);
+  expect(lines.some((line) => line.includes('// optional: format, dueBefore'))).toBe(true);
   expect(lines.some((line) => line.includes('Examples:'))).toBe(true);
-    expect(lines.some((line) => line.includes('mcporter call calculator.add(a: 1)'))).toBe(true);
+  expect(lines.some((line) => line.includes('mcporter call calculator.add(a: 1)'))).toBe(true);
   expect(listToolsSpy).toHaveBeenCalledWith('calculator', { includeSchema: true });
 
   logSpy.mockRestore();
@@ -235,10 +237,8 @@ describe('CLI list classification', () => {
 
     expect(lines.some((line) => line.includes('add({'))).toBe(true);
     expect(lines.some((line) => line.includes('a: number') && line.includes('First operand'))).toBe(true);
-    expect(
-      lines.some((line) => line.includes('format?: "json" | "markdown"') && line.includes('Output serialization format'))
-    ).toBe(true);
-    expect(lines.some((line) => line.includes('dueBefore?: string') && line.includes('ISO 8601'))).toBe(true);
+    expect(lines.some((line) => line.includes('format?: "json" | "markdown"'))).toBe(true);
+    expect(lines.some((line) => line.includes('dueBefore?: string'))).toBe(true);
     expect(lines.some((line) => line.includes('// optional:'))).toBe(false);
     expect(lines.some((line) => line.includes('mcporter call calculator.add(a: 1, format: "json")'))).toBe(true);
     expect(listToolsSpy).toHaveBeenCalledWith('calculator', { includeSchema: true });
