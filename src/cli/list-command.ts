@@ -261,12 +261,7 @@ function formatOptionalNote(omittedOptions: GeneratedOption[]): string | undefin
     return undefined;
   }
   const names = omittedOptions.map((option) => option.property);
-  const limit = 3;
-  const visibleNames = names.slice(0, limit);
-  if (names.length > limit) {
-    visibleNames.push('…');
-  }
-  return extraDimText(`// optional: ${visibleNames.join(', ')}`);
+  return extraDimText(`// optional (${names.length}): ${names.join(', ')}`);
 }
 
 function formatParameterSignature(option: GeneratedOption): string {
