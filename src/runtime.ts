@@ -49,6 +49,7 @@ export interface Runtime {
   listServers(): string[];
   getDefinitions(): ServerDefinition[];
   getDefinition(server: string): ServerDefinition;
+  registerDefinition(definition: ServerDefinition, options?: { overwrite?: boolean }): void;
   listTools(server: string, options?: ListToolsOptions): Promise<ServerToolInfo[]>;
   callTool(server: string, toolName: string, options?: CallOptions): Promise<unknown>;
   listResources(server: string, options?: Partial<ListResourcesRequest['params']>): Promise<unknown>;
@@ -133,6 +134,14 @@ class McpRuntime implements Runtime {
       throw new Error(`Unknown MCP server '${server}'.`);
     }
     return definition;
+  }
+
+  registerDefinition(definition: ServerDefinition, options: { overwrite?: boolean } = {}): void {
+    if (!options.overwrite && this.definitions.has(definition.name)) {
+      throw new Error(`MCP server '${definition.name}' already exists.`);
+    }
+    this.definitions.set(definition.name, definition);
+    this.clients.delete(definition.name);
   }
 
   // listTools queries tool metadata and optionally includes schemas when requested.

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ServerDefinition } from '../src/config.js';
 
 process.env.MCPORTER_DISABLE_AUTORUN = '1';
 const cliModulePromise = import('../src/cli.js');
@@ -206,5 +207,25 @@ describe('CLI call argument parsing', () => {
     expect(errorSpy).not.toHaveBeenCalled();
 
     errorSpy.mockRestore();
+  });
+
+  it('registers an ad-hoc HTTP server when --http-url is provided', async () => {
+    const { handleCall } = await cliModulePromise;
+    const definitions = new Map<string, ServerDefinition>();
+    const registerDefinition = vi.fn((definition: ServerDefinition) => {
+      definitions.set(definition.name, definition);
+    });
+    const callTool = vi.fn().mockResolvedValue({ ok: true });
+    const runtime = {
+      registerDefinition,
+      callTool,
+      close: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Awaited<ReturnType<typeof import('../src/runtime.js')['createRuntime']>>;
+
+    await handleCall(runtime, ['--http-url', 'https://mcp.example.com/mcp', '--tool', 'status']);
+
+    expect(registerDefinition).toHaveBeenCalled();
+    expect(definitions.get('mcp-example-com-mcp')).toBeDefined();
+    expect(callTool).toHaveBeenCalledWith('mcp-example-com-mcp', 'status', { args: {} });
   });
 });

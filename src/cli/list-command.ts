@@ -19,6 +19,12 @@ export function extractListFlags(args: string[]): {
   let requiredOnly = true;
   let ephemeral: EphemeralServerSpec | undefined;
   let index = 0;
+  const ensureEphemeral = (): EphemeralServerSpec => {
+    if (!ephemeral) {
+      ephemeral = {};
+    }
+    return ephemeral;
+  };
   while (index < args.length) {
     const token = args[index];
     if (token === '--schema') {
@@ -31,12 +37,12 @@ export function extractListFlags(args: string[]): {
       if (!value) {
         throw new Error("Flag '--http-url' requires a value.");
       }
-      ephemeral = { ...(ephemeral ?? {}), httpUrl: value };
+      ensureEphemeral().httpUrl = value;
       args.splice(index, 2);
       continue;
     }
     if (token === '--allow-http') {
-      ephemeral = { ...(ephemeral ?? {}), allowInsecureHttp: true };
+      ensureEphemeral().allowInsecureHttp = true;
       args.splice(index, 1);
       continue;
     }
@@ -45,7 +51,7 @@ export function extractListFlags(args: string[]): {
       if (!value) {
         throw new Error("Flag '--stdio' requires a value.");
       }
-      ephemeral = { ...(ephemeral ?? {}), stdioCommand: value };
+      ensureEphemeral().stdioCommand = value;
       args.splice(index, 2);
       continue;
     }
@@ -54,8 +60,8 @@ export function extractListFlags(args: string[]): {
       if (!value) {
         throw new Error("Flag '--stdio-arg' requires a value.");
       }
-      const argsList = [...(ephemeral?.stdioArgs ?? []), value];
-      ephemeral = { ...(ephemeral ?? {}), stdioArgs: argsList };
+      const spec = ensureEphemeral();
+      spec.stdioArgs = [...(spec.stdioArgs ?? []), value];
       args.splice(index, 2);
       continue;
     }
@@ -65,9 +71,13 @@ export function extractListFlags(args: string[]): {
         throw new Error("Flag '--env' requires KEY=value.");
       }
       const [key, ...rest] = value.split('=');
-      const envMap = { ...(ephemeral?.env ?? {}) };
+      if (!key) {
+        throw new Error("Flag '--env' requires KEY=value.");
+      }
+      const spec = ensureEphemeral();
+      const envMap = spec.env ? { ...spec.env } : {};
       envMap[key] = rest.join('=');
-      ephemeral = { ...(ephemeral ?? {}), env: envMap };
+      spec.env = envMap;
       args.splice(index, 2);
       continue;
     }
@@ -76,7 +86,7 @@ export function extractListFlags(args: string[]): {
       if (!value) {
         throw new Error("Flag '--cwd' requires a value.");
       }
-      ephemeral = { ...(ephemeral ?? {}), cwd: value };
+      ensureEphemeral().cwd = value;
       args.splice(index, 2);
       continue;
     }
@@ -85,7 +95,7 @@ export function extractListFlags(args: string[]): {
       if (!value) {
         throw new Error("Flag '--name' requires a value.");
       }
-      ephemeral = { ...(ephemeral ?? {}), name: value };
+      ensureEphemeral().name = value;
       args.splice(index, 2);
       continue;
     }
@@ -94,7 +104,7 @@ export function extractListFlags(args: string[]): {
       if (!value) {
         throw new Error("Flag '--description' requires a value.");
       }
-      ephemeral = { ...(ephemeral ?? {}), description: value };
+      ensureEphemeral().description = value;
       args.splice(index, 2);
       continue;
     }
@@ -103,7 +113,7 @@ export function extractListFlags(args: string[]): {
       if (!value) {
         throw new Error("Flag '--persist' requires a value.");
       }
-      ephemeral = { ...(ephemeral ?? {}), persistPath: value };
+      ensureEphemeral().persistPath = value;
       args.splice(index, 2);
       continue;
     }
@@ -259,30 +269,20 @@ export async function handleList(
 
   const definition = runtime.getDefinition(target);
   const timeoutMs = flags.timeoutMs ?? LIST_TIMEOUT_MS;
-  const sourcePath = formatSourceSuffix(definition.source, true);
+  const sourcePath =
+    definition.source?.kind === 'import' || definition.source?.kind === 'local'
+      ? formatSourceSuffix(definition.source, true)
+      : undefined;
   const transportSummary =
     definition.command.kind === 'http'
       ? `HTTP ${definition.command.url instanceof URL ? definition.command.url.href : String(definition.command.url)}`
       : `STDIO ${[definition.command.command, ...(definition.command.args ?? [])].join(' ')}`.trim();
-  const descriptionText = definition.description ?? '<none>';
-  const trailingSummary = `${descriptionText}`;
-  const headerLabel = boldText(target);
-  console.log(`${headerLabel}`);
-  const details: string[] = [extraDimText(trailingSummary)];
-  if (transportSummary) {
-    details.push(extraDimText(transportSummary));
-  }
-  if (sourcePath) {
-    details.push(extraDimText(`source: ${sourcePath.replace(/^\s+Source: /, '')}`));
-  }
-  console.log(`  ${details.join(extraDimText(' · '))}`);
-  console.log('');
-  if (sourcePath) {
-    console.log(`  Source: ${sourcePath}`);
-  }
+  const startedAt = Date.now();
   try {
     // Always request schemas so we can render CLI-style parameter hints without re-querying per tool.
     const tools = await withTimeout(runtime.listTools(target, { includeSchema: true }), timeoutMs);
+    const durationMs = Date.now() - startedAt;
+    printSingleServerHeader(definition, tools.length, durationMs, transportSummary, sourcePath);
     if (tools.length === 0) {
       console.log('  Tools: <none>');
       return;
@@ -310,6 +310,8 @@ export async function handleList(
     }
     return;
   } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    printSingleServerHeader(definition, undefined, durationMs, transportSummary, sourcePath);
     const message = error instanceof Error ? error.message : 'Failed to load tool list.';
     const timeoutMs = flags.timeoutMs ?? LIST_TIMEOUT_MS;
     console.warn(`  Tools: <timed out after ${timeoutMs}ms>`);
@@ -327,6 +329,32 @@ function indent(text: string, pad: string): string {
 interface ToolDetailResult {
   example?: string;
   optionalOmitted: boolean;
+}
+
+function printSingleServerHeader(
+  definition: ReturnType<Awaited<ReturnType<typeof import('../runtime.js')['createRuntime']>>['getDefinition']>,
+  toolCount: number | undefined,
+  durationMs: number | undefined,
+  transportSummary: string,
+  sourcePath: string | undefined
+): void {
+  const description = definition.description ?? '<none>';
+  console.log(`${boldText(definition.name)} - ${extraDimText(description)}`);
+  const summaryParts: string[] = [];
+  summaryParts.push(
+    extraDimText(typeof toolCount === 'number' ? `${toolCount} tool${toolCount === 1 ? '' : 's'}` : 'tools unavailable')
+  );
+  if (typeof durationMs === 'number') {
+    summaryParts.push(extraDimText(`${durationMs}ms`));
+  }
+  if (transportSummary) {
+    summaryParts.push(extraDimText(transportSummary));
+  }
+  if (sourcePath) {
+    summaryParts.push(sourcePath);
+  }
+  console.log(`  ${summaryParts.join(extraDimText(' · '))}`);
+  console.log('');
 }
 
 function printToolDetail(
@@ -371,11 +399,21 @@ function formatToolSignatureBlock(
     lines.push(extraDimText(`// ${description}`));
   }
   const optionalNote = formatOptionalNote(requiredOnly ? allOptions.filter((entry) => !entry.required) : []);
+
+  const inlineEligible = isInlineFriendly(visibleOptions, optionalNote);
+
+  if (inlineEligible) {
+    const signature = buildInlineSignature(name, visibleOptions);
+    lines.push(optionalNote ? `${signature} ${optionalNote}` : signature);
+    return lines;
+  }
+
   if (visibleOptions.length === 0) {
     const signature = requiredOnly && allOptions.length > 0 ? `${cyanText(name)}({})` : `${cyanText(name)}()`;
     lines.push(optionalNote ? `${signature} ${optionalNote}` : signature);
     return lines;
   }
+
   lines.push(`${cyanText(name)}({`);
   for (const option of visibleOptions) {
     lines.push(`  ${formatParameterSignature(option)}`);
@@ -383,6 +421,39 @@ function formatToolSignatureBlock(
   const closing = optionalNote ? `}) ${optionalNote}` : '})';
   lines.push(closing);
   return lines;
+}
+
+function isInlineFriendly(options: GeneratedOption[], optionalNote: string | undefined): boolean {
+  if (options.length === 0) {
+    return true;
+  }
+  if (options.length > 2) {
+    return false;
+  }
+  return options.every((option) => {
+    const commentLength = option.description?.length ?? 0;
+    return commentsFitsInline(commentLength) && !option.enumValues && option.type !== 'array';
+  });
+}
+
+function commentsFitsInline(length: number, max = 60): boolean {
+  return length <= max;
+}
+
+function buildInlineSignature(name: string, options: GeneratedOption[]): string {
+  if (options.length === 0) {
+    return `${cyanText(name)}()`;
+  }
+  const parts = options.map((option) => {
+    const typeAnnotation = formatTypeAnnotation(option);
+    const optionalSuffix = option.required ? '' : '?';
+    const commentSuffix = option.description ? `  ${extraDimText(`// ${option.description}`)}` : '';
+    return `${option.property}${optionalSuffix}: ${typeAnnotation}${commentSuffix}`;
+  });
+  if (options.length === 1) {
+    return `${cyanText(name)}(${parts[0]})`;
+  }
+  return `${cyanText(name)}({ ${parts.join(', ')} })`;
 }
 
 function formatOptionalNote(omittedOptions: GeneratedOption[]): string | undefined {
