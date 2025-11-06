@@ -16,6 +16,7 @@ export interface GeneratedOption {
   exampleValue?: string;
   enumValues?: string[];
   defaultValue?: unknown;
+  formatHint?: string;
 }
 
 export function buildToolMetadata(tool: ServerToolInfo): ToolMetadata {
@@ -54,7 +55,8 @@ export function extractOptions(tool: ServerToolInfo): GeneratedOption[] {
     const type = inferType(descriptor);
     const enumValues = getEnumValues(descriptor);
     const defaultValue = getDescriptorDefault(descriptor);
-    const placeholder = buildPlaceholder(property, type, enumValues);
+    const formatInfo = getDescriptorFormatHint(descriptor);
+    const placeholder = buildPlaceholder(property, type, enumValues, formatInfo?.slug);
     const exampleValue = buildExampleValue(property, type, enumValues, defaultValue);
     return {
       property,
@@ -66,6 +68,7 @@ export function extractOptions(tool: ServerToolInfo): GeneratedOption[] {
       exampleValue,
       enumValues,
       defaultValue,
+      formatHint: formatInfo?.display,
     };
   });
 }
@@ -103,7 +106,12 @@ export function getDescriptorDefault(descriptor: unknown): unknown {
   return undefined;
 }
 
-export function buildPlaceholder(property: string, type: GeneratedOption['type'], enumValues?: string[]): string {
+export function buildPlaceholder(
+  property: string,
+  type: GeneratedOption['type'],
+  enumValues?: string[],
+  formatSlug?: string
+): string {
   const normalized = property.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`).replace(/_/g, '-');
   if (enumValues && enumValues.length > 0) {
     return `<${normalized}:${enumValues.join('|')}>`;
@@ -116,6 +124,9 @@ export function buildPlaceholder(property: string, type: GeneratedOption['type']
     case 'array':
       return `<${normalized}:value1,value2>`;
     default:
+      if (formatSlug) {
+        return `<${normalized}:${formatSlug}>`;
+      }
       return `<${normalized ?? 'value'}>`;
   }
 }
@@ -171,6 +182,48 @@ export function getDescriptorDescription(descriptor: unknown): string | undefine
   }
   const record = descriptor as Record<string, unknown>;
   return typeof record.description === 'string' ? (record.description as string) : undefined;
+}
+
+export function getDescriptorFormatHint(descriptor: unknown): { display: string; slug: string } | undefined {
+  if (typeof descriptor !== 'object' || descriptor === null) {
+    return undefined;
+  }
+  const record = descriptor as Record<string, unknown>;
+  const formatRaw = typeof record.format === 'string' ? record.format : undefined;
+  const description = typeof record.description === 'string' ? record.description : undefined;
+
+  const iso8601FromDescription =
+    !formatRaw && description && /\biso[-\s]*8601\b/i.test(description) ? 'iso-8601' : undefined;
+  const isoFormatFromDescription =
+    !formatRaw && !iso8601FromDescription && description && /\biso\s+format\b/i.test(description)
+      ? 'iso-8601'
+      : undefined;
+
+  const formatFromDescription = iso8601FromDescription ?? isoFormatFromDescription;
+
+  const slug = formatRaw ?? formatFromDescription;
+  if (!slug) {
+    return undefined;
+  }
+
+  let display: string;
+  switch (slug) {
+    case 'date-time':
+    case 'iso-8601':
+      display = 'ISO 8601';
+      break;
+    case 'uuid':
+      display = 'UUID';
+      break;
+    default:
+      display = slug.replace(/[_-]/g, ' ');
+      display = display.charAt(0).toUpperCase() + display.slice(1);
+      break;
+  }
+  return {
+    display: display.replace(/\b\w/g, (char) => char.toUpperCase()),
+    slug,
+  };
 }
 
 export function toProxyMethodName(toolName: string): string {

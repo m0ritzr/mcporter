@@ -6,6 +6,7 @@ import {
   extractOptions,
   getDescriptorDefault,
   getDescriptorDescription,
+  getDescriptorFormatHint,
   getEnumValues,
   inferType,
   toCliOption,
@@ -23,6 +24,7 @@ describe('generate helpers', () => {
         firstValue: { type: 'number', description: 'First operand', default: 1 },
         mode: { type: 'string', enum: ['fast', 'accurate'] },
         extra_path: { type: 'string' },
+        cursor: { type: 'string', format: 'date-time', description: 'ISO 8601 cursor' },
       },
       required: ['firstValue', 'mode'],
     },
@@ -32,7 +34,7 @@ describe('generate helpers', () => {
   it('builds tool metadata', () => {
     const metadata = buildToolMetadata(sampleTool);
     expect(metadata.methodName).toBe('addNumbers');
-    expect(metadata.options).toHaveLength(3);
+    expect(metadata.options).toHaveLength(4);
     const first = metadata.options.find((option) => option.property === 'firstValue');
     expect(first).toBeDefined();
     if (first) {
@@ -62,6 +64,13 @@ describe('generate helpers', () => {
       expect(extra.placeholder).toBe('<extra-path>');
       expect(extra.exampleValue).toBe('/path/to/file.md');
     }
+
+    const cursor = options.find((option) => option.property === 'cursor');
+    expect(cursor).toBeDefined();
+    if (cursor) {
+      expect(cursor.placeholder).toBe('<cursor:date-time>');
+      expect(cursor.formatHint).toBe('ISO 8601');
+    }
   });
 
   it('derives helper metadata', () => {
@@ -73,6 +82,7 @@ describe('generate helpers', () => {
     expect(getDescriptorDefault({ type: 'array', default: ['alpha'] })).toEqual(['alpha']);
 
     expect(buildPlaceholder('myPath', 'string', ['s1', 's2'])).toBe('<my-path:s1|s2>');
+    expect(buildPlaceholder('createdAt', 'string', undefined, 'iso-8601')).toBe('<created-at:iso-8601>');
     expect(buildExampleValue('itemId', 'string', undefined, undefined)).toBe('example-id');
     expect(buildExampleValue('mode', 'string', ['fast'], undefined)).toBe('fast');
 
@@ -81,6 +91,9 @@ describe('generate helpers', () => {
 
     expect(getDescriptorDescription({ description: 'hi' })).toBe('hi');
     expect(getDescriptorDescription({})).toBeUndefined();
+    expect(getDescriptorFormatHint({ format: 'uuid' })).toEqual({ display: 'UUID', slug: 'uuid' });
+    expect(getDescriptorFormatHint({ description: 'Provide an ISO format timestamp' })?.slug).toBe('iso-8601');
+    expect(getDescriptorFormatHint({ description: 'plain string' })).toBeUndefined();
 
     expect(toProxyMethodName('some-tool_name')).toBe('someToolName');
     expect(toCliOption('inputValue')).toBe('input-value');

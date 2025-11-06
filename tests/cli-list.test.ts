@@ -132,17 +132,18 @@ describe('CLI list classification', () => {
         {
           name: 'add',
           description: 'Add two numbers',
-          inputSchema: options?.includeSchema
-            ? {
-                type: 'object',
-                properties: {
-                  a: { type: 'number' },
-                  format: { type: 'string', enum: ['json', 'markdown'] },
-                },
-                required: ['a'],
-              }
-            : undefined,
-        },
+            inputSchema: options?.includeSchema
+              ? {
+                  type: 'object',
+                  properties: {
+                    a: { type: 'number' },
+                    format: { type: 'string', enum: ['json', 'markdown'] },
+                    dueBefore: { type: 'string', format: 'date-time', description: 'ISO 8601 timestamp' },
+                  },
+                  required: ['a'],
+                }
+              : undefined,
+          },
       ])
     );
     const runtime = {
@@ -160,9 +161,12 @@ describe('CLI list classification', () => {
 
     const logLines = logSpy.mock.calls.map((call) => call.join(' '));
     expect(logLines.some((line) => line.includes('calculator'))).toBe(true);
-    expect(logLines.some((line) => line.includes('Test integration server [HTTP https://example.com/mcp]'))).toBe(true);
+    expect(
+      logLines.some((line) => line.includes('calculator - Test integration server [HTTP https://example.com/mcp]'))
+    ).toBe(true);
     expect(logLines.some((line) => line.includes('Add two numbers'))).toBe(true);
     expect(logLines.some((line) => line.includes('Usage: mcporter call calculator.add --a <a:number>'))).toBe(true);
+    expect(logLines.some((line) => line.includes('[dueBefore:string (ISO 8601)]'))).toBe(true);
     expect(listToolsSpy).toHaveBeenCalledWith('calculator', { includeSchema: true });
 
     logSpy.mockRestore();

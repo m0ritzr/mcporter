@@ -140,13 +140,13 @@ export async function handleList(
   const definition = runtime.getDefinition(target);
   const timeoutMs = flags.timeoutMs ?? LIST_TIMEOUT_MS;
   const sourcePath = formatSourceSuffix(definition.source, true);
-  console.log(boldText(target));
   const transportSummary =
     definition.command.kind === 'http'
       ? `HTTP ${definition.command.url instanceof URL ? definition.command.url.href : String(definition.command.url)}`
       : `STDIO ${[definition.command.command, ...(definition.command.args ?? [])].join(' ')}`.trim();
   const serverSummary = `${definition.description ?? '<none>'}${transportSummary ? ` [${transportSummary}]` : ''}`;
-  console.log(`  ${serverSummary}`);
+  const headerLabel = boldText(target);
+  console.log(`${headerLabel} - ${serverSummary}`);
   if (sourcePath) {
     console.log(`  Source: ${sourcePath}`);
   }
@@ -216,11 +216,32 @@ function formatParameterList(options: GeneratedOption[]): string {
 }
 
 function formatParameter(option: GeneratedOption): string {
-  const raw =
-    option.placeholder.startsWith('<') && option.placeholder.endsWith('>')
-      ? option.placeholder.slice(1, -1)
-      : option.placeholder;
-  const detail = raw.includes(':') ? raw.split(':').slice(1).join(':') : raw;
-  const trimmedDetail = detail ? dimText(detail) : '';
-  return trimmedDetail ? `${option.property}:${trimmedDetail}` : option.property;
+  let detail: string | undefined;
+  if (option.enumValues && option.enumValues.length > 0) {
+    detail = option.enumValues.join('|');
+  } else {
+    switch (option.type) {
+      case 'number':
+        detail = 'number';
+        break;
+      case 'boolean':
+        detail = 'true|false';
+        break;
+      case 'array':
+        detail = 'value1,value2';
+        break;
+      case 'string':
+        detail = 'string';
+        break;
+      default:
+        detail = undefined;
+        break;
+    }
+  }
+
+  const detailText = detail ? `${option.property}:${dimText(detail)}` : option.property;
+  if (option.formatHint && option.type === 'string' && (!option.enumValues || option.enumValues.length === 0)) {
+    return `${detailText} ${dimText(`(${option.formatHint})`)}`;
+  }
+  return detailText;
 }
