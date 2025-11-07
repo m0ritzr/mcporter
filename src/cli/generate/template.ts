@@ -32,12 +32,19 @@ export async function writeTemplate(input: TemplateInput): Promise<string> {
 
 export async function readPackageMetadata(): Promise<{ name: string; version: string }> {
   const packageJsonPath = path.resolve(process.cwd(), 'package.json');
-  const buffer = await fs.readFile(packageJsonPath, 'utf8');
-  const pkg = JSON.parse(buffer) as { name?: string; version?: string };
-  return {
-    name: pkg.name ?? 'mcporter',
-    version: pkg.version ?? '0.0.0',
-  };
+  try {
+    const buffer = await fs.readFile(packageJsonPath, 'utf8');
+    const pkg = JSON.parse(buffer) as { name?: string; version?: string };
+    return {
+      name: pkg.name ?? 'mcporter',
+      version: pkg.version ?? '0.0.0',
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+    return { name: 'mcporter', version: '0.0.0' };
+  }
 }
 
 export function renderTemplate({

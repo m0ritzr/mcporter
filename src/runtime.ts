@@ -15,6 +15,7 @@ import './sdk-patches.js';
 
 const PACKAGE_NAME = 'mcporter';
 const CLIENT_VERSION = '0.3.1';
+export const MCPORTER_VERSION = CLIENT_VERSION;
 
 export interface RuntimeOptions {
   readonly configPath?: string;

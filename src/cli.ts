@@ -18,7 +18,7 @@ import { consumeOutputFormat } from './cli/output-format.js';
 import { DEBUG_HANG, dumpActiveHandles, terminateChildProcesses } from './cli/runtime-debug.js';
 import { analyzeConnectionError } from './error-classifier.js';
 import { parseLogLevel } from './logging.js';
-import { createRuntime } from './runtime.js';
+import { MCPORTER_VERSION, createRuntime } from './runtime.js';
 
 export { parseCallArguments } from './cli/call-arguments.js';
 export { handleCall } from './cli/call-command.js';
@@ -213,16 +213,7 @@ Examples:
 }
 
 async function printVersion(): Promise<void> {
-  try {
-    const packageJsonPath = new URL('../package.json', import.meta.url);
-    const buffer = await fsPromises.readFile(packageJsonPath, 'utf8');
-    const pkg = JSON.parse(buffer) as { version?: string };
-    console.log(pkg.version ?? '0.0.0');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logError(`Failed to read mcporter version: ${message}`, error instanceof Error ? error : undefined);
-    process.exit(1);
-  }
+  console.log(await resolveCliVersion());
 }
 
 function isHelpToken(token: string): boolean {
@@ -231,6 +222,17 @@ function isHelpToken(token: string): boolean {
 
 function isVersionToken(token: string): boolean {
   return token === '--version' || token === '-v' || token === '-V';
+}
+
+async function resolveCliVersion(): Promise<string> {
+  try {
+    const packageJsonPath = new URL('../package.json', import.meta.url);
+    const buffer = await fsPromises.readFile(packageJsonPath, 'utf8');
+    const pkg = JSON.parse(buffer) as { version?: string };
+    return pkg.version ?? MCPORTER_VERSION;
+  } catch {
+    return MCPORTER_VERSION;
+  }
 }
 
 if (process.env.MCPORTER_DISABLE_AUTORUN !== '1') {
