@@ -40,7 +40,9 @@ export async function handleGenerateCli(args: string[], globalFlags: FlagMap): P
       if (position !== -1) {
         args.splice(position, 1);
       }
-      if (looksLikeHttpUrl(positional) || positional.includes('://')) {
+      if (looksLikeInlineCommand(positional)) {
+        parsed.command = normalizeCommandInput(positional);
+      } else if (looksLikeHttpUrl(positional) || positional.includes('://')) {
         parsed.command = positional;
       } else {
         parsed.server = positional;
@@ -295,6 +297,23 @@ function parseGenerateFlags(args: string[]): GenerateFlags {
     index += 1;
   }
 
+  if (!server && !command && !from) {
+    const positional = args.find((token) => token && !token.startsWith('--'));
+    if (positional) {
+      const position = args.indexOf(positional);
+      if (position !== -1) {
+        args.splice(position, 1);
+      }
+      if (looksLikeInlineCommand(positional)) {
+        command = normalizeCommandInput(positional);
+      } else if (looksLikeHttpUrl(positional) || positional.includes('://')) {
+        command = positional;
+      } else {
+        server = positional;
+      }
+    }
+  }
+
   return {
     server,
     name,
@@ -393,6 +412,21 @@ function stripExtension(value: string): string {
     return value;
   }
   return value.slice(0, index);
+}
+
+function looksLikeInlineCommand(value: string): boolean {
+  if (!value) {
+    return false;
+  }
+  if (!/\s/.test(value)) {
+    return false;
+  }
+  try {
+    const parts = splitCommandLine(value.trim());
+    return parts.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function deriveNameFromUrl(url: URL): string | undefined {

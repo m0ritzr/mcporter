@@ -79,6 +79,7 @@ npx mcporter generate-cli --command "npx -y chrome-devtools-mcp@latest"
 - Omit `--name` to let mcporter infer it from the command URL (for example, `https://mcp.context7.com/mcp` becomes `context7`).
 - When targeting an existing config entry, you can skip `--server` and pass the name as a positional argument:
   `npx mcporter generate-cli linear --bundle dist/linear.js`.
+- When the MCP server is a stdio command, you can also skip `--command` by quoting the inline command as the first positional argument (e.g., `npx mcporter generate-cli "npx -y chrome-devtools-mcp@latest"`).
 ```
 
 

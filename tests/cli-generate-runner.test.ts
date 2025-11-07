@@ -69,6 +69,16 @@ describe('generate-cli runner internals', () => {
     expect(inferred).toBe('shadcn');
   });
 
+  it('treats positional inline commands as generate-cli targets', () => {
+    const args = ['npx -y chrome-devtools-mcp@latest'];
+    const parsed = generateInternals.parseGenerateFlags([...args]);
+    expect(parsed.command).toBeDefined();
+    expect(parsed.server).toBeUndefined();
+    const spec = parsed.command as { command: string; args?: string[] };
+    expect(spec.command).toBe('npx');
+    expect(spec.args).toEqual(['-y', 'chrome-devtools-mcp@latest']);
+  });
+
   it('builds regenerate commands honoring global flags and invocation overrides', () => {
     const definition: SerializedServerDefinition = {
       name: 'demo',

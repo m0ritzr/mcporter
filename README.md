@@ -274,6 +274,8 @@ npx mcporter generate-cli \
 >
 > `npx mcporter generate-cli --command "npx -y chrome-devtools-mcp@latest"`
 
+Tip: you can drop `--command` when the inline command is the first positional argument (e.g., `npx mcporter generate-cli "npx -y chrome-devtools-mcp@latest"`).
+
 - `--name` overrides the inferred CLI name.
 - Add `--description "..."` if you want a custom summary in the generated help output.
 - Add `--bundle [path]` to emit an esbuild bundle alongside the template.
