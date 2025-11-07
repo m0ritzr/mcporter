@@ -7,29 +7,35 @@ import { loadServerDefinitions } from '../src/config.js';
 const FIXTURE_ROOT = path.resolve(__dirname, 'fixtures', 'imports');
 
 let homedirSpy: { mockRestore(): void } | undefined;
+let fakeHomeDir: string | undefined;
 
 beforeEach(() => {
-  const fakeHome = path.join(FIXTURE_ROOT, 'home');
-  fs.mkdirSync(fakeHome, { recursive: true });
-  homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
-  process.env.HOME = fakeHome;
-  process.env.USERPROFILE = fakeHome;
-  process.env.APPDATA = path.join(fakeHome, 'AppData', 'Roaming');
+  fakeHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcporter-home-'));
+  homedirSpy = vi.spyOn(os, 'homedir').mockReturnValue(fakeHomeDir);
+  process.env.HOME = fakeHomeDir;
+  process.env.USERPROFILE = fakeHomeDir;
+  process.env.APPDATA = path.join(fakeHomeDir, 'AppData', 'Roaming');
   fs.mkdirSync(process.env.APPDATA, { recursive: true });
   const sourceCodex = path.join(FIXTURE_ROOT, '.codex', 'config.toml');
-  const targetCodex = path.join(fakeHome, '.codex', 'config.toml');
+  const targetCodex = path.join(fakeHomeDir, '.codex', 'config.toml');
   fs.mkdirSync(path.dirname(targetCodex), { recursive: true });
   fs.copyFileSync(sourceCodex, targetCodex);
 
   const sourceWindsurf = path.join(FIXTURE_ROOT, '.codeium', 'windsurf', 'mcp_config.json');
-  const targetWindsurf = path.join(fakeHome, '.codeium', 'windsurf', 'mcp_config.json');
+  const targetWindsurf = path.join(fakeHomeDir, '.codeium', 'windsurf', 'mcp_config.json');
   fs.mkdirSync(path.dirname(targetWindsurf), { recursive: true });
   fs.copyFileSync(sourceWindsurf, targetWindsurf);
 
   const sourceVscode = path.join(FIXTURE_ROOT, 'Library', 'Application Support', 'Code', 'User', 'mcp.json');
-  const targetVscode = path.join(fakeHome, 'Library', 'Application Support', 'Code', 'User', 'mcp.json');
-  fs.mkdirSync(path.dirname(targetVscode), { recursive: true });
-  fs.copyFileSync(sourceVscode, targetVscode);
+  const vscodeTargets = [
+    path.join(fakeHomeDir, 'Library', 'Application Support', 'Code', 'User', 'mcp.json'),
+    path.join(fakeHomeDir, '.config', 'Code', 'User', 'mcp.json'),
+    path.join(process.env.APPDATA ?? fakeHomeDir, 'Code', 'User', 'mcp.json'),
+  ];
+  for (const target of vscodeTargets) {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(sourceVscode, target);
+  }
 });
 
 afterEach(() => {
@@ -37,6 +43,10 @@ afterEach(() => {
   process.env.HOME = undefined;
   process.env.USERPROFILE = undefined;
   process.env.APPDATA = undefined;
+  if (fakeHomeDir) {
+    fs.rmSync(fakeHomeDir, { recursive: true, force: true });
+    fakeHomeDir = undefined;
+  }
 });
 
 describe('config imports', () => {
