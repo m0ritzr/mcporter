@@ -782,14 +782,22 @@ export async function handleAuth(runtime: Awaited<ReturnType<typeof createRuntim
     }
   }
 
-  try {
-    // Kick off the interactive OAuth flow without blocking list output.
-    logInfo(`Initiating OAuth flow for '${target}'...`);
-    const tools = await runtime.listTools(target, { autoAuthorize: true });
-    logInfo(`Authorization complete. ${tools.length} tool${tools.length === 1 ? '' : 's'} available.`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to authorize '${target}': ${message}`);
+  // Kick off the interactive OAuth flow without blocking list output. We retry once if the
+  // server gets auto-promoted to OAuth mid-flight.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      logInfo(`Initiating OAuth flow for '${target}'...`);
+      const tools = await runtime.listTools(target, { autoAuthorize: true });
+      logInfo(`Authorization complete. ${tools.length} tool${tools.length === 1 ? '' : 's'} available.`);
+      return;
+    } catch (error) {
+      if (attempt === 0 && error instanceof Error && /Unauthorized/i.test(error.message)) {
+        logWarn('Server signaled OAuth after the initial attempt. Retrying with browser flow...');
+        continue;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to authorize '${target}': ${message}`);
+    }
   }
 }
 
