@@ -7,10 +7,21 @@ _Nothing yet._
 ## [0.3.1] - 2025-11-07
 
 ### CLI & runtime
+- Short-circuited global `--help` / `--version` handling so these flags no longer fall through command inference and always print immediately, regardless of which command the user typed first.
+- Added regression coverage for the new shortcuts and kept the existing `runCli` helper exported so tests (and downstream tools) can exercise argument parsing without forking the entire process.
+
+### Code generation & metadata
+- Fixed `mcporter generate-cli --bundle/--compile` in empty directories by aliasing `commander`/`mcporter` imports to the CLI’s own installation so esbuild always resolves dependencies. Verified with a new fixture that bundles from temp dirs without `node_modules` (fixes #1).
+- Added an end-to-end integration test that runs `node dist/cli.js generate-cli` twice—once for bundling and once for `--compile`—as well as a GitHub Actions step that installs Bun so CI exercises the compiled binary path on every PR.
+
+### Release assets
+- Published the Bun build as `mcporter-macos-arm64-v0.3.1.tar.gz` alongside the npm release so Homebrew can point at the same artifact, with the SHA256 recorded in the release notes.
+
+## [0.3.0] - 2025-11-06
+
+### CLI & runtime
 - Added configurable log levels (`--log-level` / `MCPORTER_LOG_LEVEL`) that default to `warn`, promoting noisy transport fallbacks to warnings so critical issues still surface.
 - Forced the CLI to exit cleanly after shutdown (opt out with `MCPORTER_NO_FORCE_EXIT`) and patched `StdioClientTransport` so stdio MCP servers no longer leave Node handles hanging; stderr from stdio servers is buffered and replayed via `MCPORTER_STDIO_LOGS=1` or whenever a server exits with a non-zero status.
-- Documented the tmux workflow (`tmux new-session -- pnpm mcporter:list`) so long-running list/debug sessions remain observable when diagnosing hung transports.
-- Known issue: `mcporter --help` / `mcporter --version` currently route through the command inference heuristic and treat `--help` as a server name. The fix (explicit global `--help/--version` handling) is tracked for the next release.
 
 ### Discovery, calling, and ad-hoc workflows
 - Rebuilt `mcporter list`: spinner updates stream live, summaries print only after discovery completes, and single-server views now render TypeScript-style doc blocks, inline examples, inferred return hints, and compact `// optional (N): …` summaries. The CLI guarantees at least five parameters before truncating, introduced a single `--all-parameters` switch (replacing the `--required-only` / `--include-optional` pair), and shares its formatter with `mcporter generate-cli` so signatures are consistent everywhere.
@@ -20,7 +31,6 @@ _Nothing yet._
 
 ### Code generation & metadata
 - Generated CLIs now embed their metadata (generator version, resolved server definition, invocation flags) behind a hidden `__mcporter_inspect` command. `mcporter inspect-cli` / `mcporter generate-cli --from <artifact>` read directly from the artifact, while legacy `.metadata.json` sidecars remain as a fallback for older binaries.
-- Fixed a regression where `mcporter generate-cli --bundle/--compile` failed in directories without `commander`/`mcporter` installed by aliasing those dependencies to mcporter’s own install and verifying through a new end-to-end test that `node dist/cli.js generate-cli` runs cleanly from an empty project (fixes #1).
 - Shared the TypeScript signature formatter between `mcporter list` and `mcporter generate-cli`, ensuring command summaries, CLI hints, and generator help stay pixel-perfect and are backed by new snapshot/unit tests.
 - Introduced `mcporter emit-ts`, a codegen command that emits `.d.ts` tool interfaces or ready-to-run client wrappers (`--mode types|client`, `--include-optional`) using the same doc/comment data that powers the CLI, so agents/tests can consume MCP servers with strong TypeScript types.
 - `mcporter generate-cli` now accepts inline stdio commands via `--command "npx -y package@latest"` or by quoting the command as the first positional argument, automatically splits the command/args, infers a friendly name from scripts or package scopes, and documents the chrome-devtools one-liner in the README; additional unit tests cover HTTP, stdio, scoped package, and positional shorthand flows.
@@ -28,7 +38,7 @@ _Nothing yet._
 ### Documentation & references
 - Added `docs/tool-calling.md`, `docs/call-syntax.md`, and `docs/call-heuristic.md` to capture every invocation style (flags, function expressions, inferred verbs) plus the typo-correction rules.
 - Expanded the ad-hoc/OAuth story across `README.md`, `docs/adhoc.md`, `docs/local.md`, `docs/known-issues.md`, and `docs/supabase-auth-issue.md`, detailing when servers auto-promote to OAuth, how retries behave, and how to persist generated definitions safely.
-- Updated the README, CLI reference, and generator docs to cover the new `--all-parameters` flag, list formatter, metadata embedding, tmux debugging, the `mcporter emit-ts` workflow, and refreshed branding so the CLI and docs consistently introduce the project as **MCPorter**.
+- Updated the README, CLI reference, and generator docs to cover the new `--all-parameters` flag, list formatter, metadata embedding, the `mcporter emit-ts` workflow, and refreshed branding so the CLI and docs consistently introduce the project as **MCPorter**.
 - Tightened `RELEASE.md` with a zero-warning policy so `pnpm check`, `pnpm test`, `npm pack --dry-run`, and friends must run clean before publishing.
 
 ## [0.2.0] - 2025-11-06
