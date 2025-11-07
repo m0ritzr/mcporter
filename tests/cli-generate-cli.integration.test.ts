@@ -130,7 +130,7 @@ describe('mcporter CLI integration', () => {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('bundles with Bun when requested via --bundler bun', async () => {
+  it('bundles with Bun automatically when runtime resolves to Bun', async () => {
     if (!(await hasBun())) {
       console.warn('bun not available on this runner; skipping Bun bundler integration test.');
       return;
@@ -146,18 +146,7 @@ describe('mcporter CLI integration', () => {
     await new Promise<void>((resolve, reject) => {
       execFile(
         process.execPath,
-        [
-          CLI_ENTRY,
-          'generate-cli',
-          '--command',
-          baseUrl.toString(),
-          '--runtime',
-          'bun',
-          '--bundle',
-          bundlePath,
-          '--bundler',
-          'bun',
-        ],
+        [CLI_ENTRY, 'generate-cli', '--command', baseUrl.toString(), '--runtime', 'bun', '--bundle', bundlePath],
         {
           cwd: tempDir,
           env: { ...process.env, MCPORTER_NO_FORCE_EXIT: '1' },
@@ -235,7 +224,7 @@ describe('mcporter CLI integration', () => {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('runs "node dist/cli.js generate-cli --compile" with --bundler bun', async () => {
+  it('runs "node dist/cli.js generate-cli --compile" using the Bun bundler by default', async () => {
     if (!(await hasBun())) {
       console.warn('bun not available on this runner; skipping Bun bundler compile integration test.');
       return;
@@ -251,18 +240,7 @@ describe('mcporter CLI integration', () => {
     await new Promise<void>((resolve, reject) => {
       execFile(
         process.execPath,
-        [
-          CLI_ENTRY,
-          'generate-cli',
-          '--command',
-          baseUrl.toString(),
-          '--compile',
-          binaryPath,
-          '--runtime',
-          'bun',
-          '--bundler',
-          'bun',
-        ],
+        [CLI_ENTRY, 'generate-cli', '--command', baseUrl.toString(), '--compile', binaryPath, '--runtime', 'bun'],
         {
           cwd: tempDir,
           env: { ...process.env, MCPORTER_NO_FORCE_EXIT: '1' },

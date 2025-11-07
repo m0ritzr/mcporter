@@ -31,7 +31,7 @@ export async function generateCli(
   options: GenerateCliOptions
 ): Promise<{ outputPath: string; bundlePath?: string; compilePath?: string }> {
   const runtimeKind = await resolveRuntimeKind(options.runtime, options.compile);
-  const bundlerKind = options.bundler ?? 'rolldown';
+  const bundlerKind = options.bundler ?? (runtimeKind === 'bun' ? 'bun' : 'rolldown');
   if (bundlerKind === 'bun' && runtimeKind !== 'bun') {
     throw new Error('--bundler bun currently requires --runtime bun.');
   }

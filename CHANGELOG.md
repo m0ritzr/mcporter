@@ -4,6 +4,7 @@
 
 ### Code generation
 - Added a `--bundler rolldown|bun` flag to `mcporter generate-cli`, defaulting to Rolldown but allowing Bun’s bundler (when paired with `--runtime bun`) for teams that want to stay entirely inside the Bun toolchain. The generator now records the chosen bundler in artifact metadata and enforces the Bun-only constraint so reproduction via `--from` stays deterministic.
+- When Bun is installed (and therefore selected as the runtime), `mcporter generate-cli` now automatically switches the bundler to Bun as well—no need to pass `--bundler bun` manually—while keeping Rolldown as the default for Node runtimes.
 - Bundling with Bun copies the generated template into mcporter’s install tree before invoking `bun build`, ensuring local `commander`/`mcporter` dependencies resolve even when the user runs the generator from an empty temp directory.
 
 ### Testing

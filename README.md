@@ -267,7 +267,7 @@ npx mcporter generate-cli \
 
 # Outputs:
 #   context7.ts        (TypeScript template with embedded schemas)
-#   context7.js        (bundled CLI via esbuild)
+#   context7.js        (bundled CLI via Rolldown or Bun, depending on runtime)
 ```
 
 > Convert the chrome-devtools MCP to a CLI via this one weird trick:
@@ -278,7 +278,7 @@ Tip: you can drop `--command` when the inline command is the first positional ar
 
 - `--name` overrides the inferred CLI name.
 - Add `--description "..."` if you want a custom summary in the generated help output.
-- Add `--bundle [path]` to emit an esbuild bundle alongside the template.
+- Add `--bundle [path]` to emit a bundle alongside the template (Rolldown when targeting Node, Bun automatically when the runtime resolves to Bun; override with `--bundler rolldown|bun`).
 - `--output <path>` writes the template somewhere specific.
 - `--runtime bun|node` picks the runtime for generated code (Bun required for `--compile`).
 - Add `--compile` to emit a Bun-compiled binary; MCPorter cleans up intermediate bundles when you omit `--bundle`.
