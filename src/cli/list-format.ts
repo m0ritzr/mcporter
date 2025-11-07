@@ -1,4 +1,5 @@
 import type { ServerDefinition, ServerSource } from '../config.js';
+import type { ConnectionIssue } from '../error-classifier.js';
 import { analyzeConnectionError } from '../error-classifier.js';
 import type { ServerToolInfo } from '../runtime.js';
 import { formatPathForDisplay } from './path-utils.js';
@@ -28,6 +29,7 @@ export function renderServerListRow(
   summary: string;
   category: StatusCategory;
   authCommand?: string;
+  issue?: ConnectionIssue;
 } {
   const description = result.server.description ? dimText(` — ${result.server.description}`) : '';
   const durationLabel = dimText(`${(result.durationMs / 1000).toFixed(1)}s`);
@@ -53,6 +55,7 @@ export function renderServerListRow(
     summary: advice.summary,
     category: advice.category,
     authCommand: advice.authCommand,
+    issue: advice.issue,
   };
 }
 
@@ -83,24 +86,25 @@ export function classifyListError(
   summary: string;
   category: StatusCategory;
   authCommand?: string;
+  issue: ConnectionIssue;
 } {
   const issue = analyzeConnectionError(error);
   if (issue.kind === 'auth') {
     const authCommand = options?.authCommand ?? `mcporter auth ${serverName}`;
     const note = yellowText(`auth required — run '${authCommand}'`);
-    return { colored: note, summary: 'auth required', category: 'auth', authCommand };
+    return { colored: note, summary: 'auth required', category: 'auth', authCommand, issue };
   }
   if (issue.kind === 'offline') {
     const note = redText('offline — unable to reach server');
-    return { colored: note, summary: 'offline', category: 'offline' };
+    return { colored: note, summary: 'offline', category: 'offline', issue };
   }
   if (issue.kind === 'http') {
     const statusText = issue.statusCode ? `HTTP ${issue.statusCode}` : 'HTTP error';
     const detail = issue.rawMessage && issue.rawMessage !== String(issue.statusCode) ? ` — ${issue.rawMessage}` : '';
     const note = redText(`${statusText}${detail}`);
-    return { colored: note, summary: statusText.toLowerCase(), category: 'http' };
+    return { colored: note, summary: statusText.toLowerCase(), category: 'http', issue };
   }
   const rawMessage = issue.rawMessage || 'unknown error';
   const note = redText(rawMessage);
-  return { colored: note, summary: rawMessage, category: 'error' };
+  return { colored: note, summary: rawMessage, category: 'error', issue };
 }

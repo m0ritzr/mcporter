@@ -66,7 +66,13 @@ describe('CLI list timeout handling', () => {
     const { extractListFlags } = await cliModulePromise;
     const args = ['--timeout', '7500', '--schema', 'server'];
     const flags = extractListFlags(args);
-    expect(flags).toEqual({ schema: true, timeoutMs: 7500, requiredOnly: true, ephemeral: undefined });
+    expect(flags).toEqual({
+      schema: true,
+      timeoutMs: 7500,
+      requiredOnly: true,
+      ephemeral: undefined,
+      format: 'text',
+    });
     expect(args).toEqual(['server']);
   });
 
@@ -74,7 +80,21 @@ describe('CLI list timeout handling', () => {
     const { extractListFlags } = await cliModulePromise;
     const args = ['--all-parameters', 'server'];
     const flags = extractListFlags(args);
-    expect(flags).toEqual({ schema: false, timeoutMs: undefined, requiredOnly: false, ephemeral: undefined });
+    expect(flags).toEqual({
+      schema: false,
+      timeoutMs: undefined,
+      requiredOnly: false,
+      ephemeral: undefined,
+      format: 'text',
+    });
+    expect(args).toEqual(['server']);
+  });
+
+  it('parses --json flag and removes it from args', async () => {
+    const { extractListFlags } = await cliModulePromise;
+    const args = ['--json', 'server'];
+    const flags = extractListFlags(args);
+    expect(flags.format).toBe('json');
     expect(args).toEqual(['server']);
   });
 
@@ -292,6 +312,79 @@ describe('CLI list classification', () => {
     expect(listToolsSpy).toHaveBeenCalledWith('calculator', expect.objectContaining({ includeSchema: true }));
 
     logSpy.mockRestore();
+  });
+
+  it('emits JSON summaries for multi-server listings when --json is provided', async () => {
+    const { handleList } = await cliModulePromise;
+    const originalCI = process.env.CI;
+    process.env.CI = '1';
+    const definitions: ServerDefinition[] = [
+      linearDefinition,
+      {
+        name: 'github',
+        command: { kind: 'http', url: new URL('https://example.com/mcp') },
+      },
+    ];
+    const runtime = {
+      getDefinitions: () => definitions,
+      listTools: (name: string) => {
+        if (name === 'linear') {
+          return Promise.resolve([{ name: 'list_documents' }]);
+        }
+        return Promise.reject(new Error('HTTP error 500: upstream unavailable'));
+      },
+    } as unknown as Awaited<ReturnType<typeof import('../src/runtime.js')['createRuntime']>>;
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    await handleList(runtime, ['--json']);
+    const payload = JSON.parse(logSpy.mock.calls.at(-1)?.[0] ?? '{}');
+    expect(payload.mode).toBe('list');
+    expect(payload.servers).toHaveLength(2);
+    const github = payload.servers.find((entry: { name: string }) => entry.name === 'github');
+    expect(github.status).toBe('http');
+    const linear = payload.servers.find((entry: { name: string }) => entry.name === 'linear');
+    expect(linear.tools[0].name).toBe('list_documents');
+    logSpy.mockRestore();
+    process.env.CI = originalCI;
+  });
+
+  it('emits JSON payloads for single server listings when --json is provided', async () => {
+    const { handleList } = await cliModulePromise;
+    const toolCache = await import('../src/cli/tool-cache.js');
+    const metadata = [
+      {
+        tool: {
+          name: 'add',
+          description: 'Add numbers',
+          inputSchema: { type: 'object', properties: { a: { type: 'number' } }, required: ['a'] },
+          outputSchema: { type: 'number' },
+        },
+        methodName: 'add',
+        options: [],
+      },
+    ];
+    const metadataSpy = vi.spyOn(toolCache, 'loadToolMetadata').mockResolvedValue(metadata as never);
+    const definition: ServerDefinition = {
+      name: 'linear',
+      description: 'Hosted Linear MCP',
+      command: { kind: 'http', url: new URL('https://example.com/mcp') },
+    };
+    const runtime = {
+      getDefinitions: () => [definition],
+      getDefinition: () => definition,
+      registerDefinition: vi.fn(),
+    } as unknown as Awaited<ReturnType<typeof import('../src/runtime.js')['createRuntime']>>;
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    await handleList(runtime, ['--json', 'linear']);
+
+    const payload = JSON.parse(logSpy.mock.calls.at(-1)?.[0] ?? '{}');
+    expect(payload.mode).toBe('server');
+    expect(payload.status).toBe('ok');
+    expect(payload.tools[0].name).toBe('add');
+
+    logSpy.mockRestore();
+    metadataSpy.mockRestore();
   });
 
   it('reuses configured servers when listing by URL', async () => {

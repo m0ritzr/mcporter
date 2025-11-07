@@ -298,7 +298,7 @@ export async function handleCall(
     invocation = await invokeWithAutoCorrection(runtime, server, tool, hydratedArgs, timeoutMs);
   } catch (error) {
     const issue = maybeReportConnectionIssue(server, tool, error);
-    if (parsed.output === 'json') {
+    if (parsed.output === 'json' || parsed.output === 'raw') {
       emitConnectionIssueJson(server, tool, issue, error);
       process.exitCode = 1;
       return;

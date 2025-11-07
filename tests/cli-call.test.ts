@@ -307,6 +307,33 @@ describe('CLI call argument parsing', () => {
     const payload = JSON.parse(logSpy.mock.calls[0]?.[0] ?? '{}');
     expect(payload.server).toBe('linear');
     expect(payload.issue.kind).toBe('offline');
+    expect(process.exitCode).toBe(1);
+
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    process.exitCode = undefined;
+  });
+
+  it('emits structured payloads for connection issues when --output raw is set', async () => {
+    const { handleCall } = await cliModulePromise;
+    const failure = new Error('fetch failed: connect ECONNREFUSED 127.0.0.1:9999');
+    const runtime = {
+      callTool: vi.fn().mockRejectedValue(failure),
+      listTools: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
+    } as unknown as Awaited<ReturnType<typeof import('../src/runtime.js')['createRuntime']>>;
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(handleCall(runtime, ['linear.listIssues', '--output', 'raw'])).resolves.toBeUndefined();
+
+    expect(errorSpy).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(logSpy.mock.calls[0]?.[0] ?? '{}');
+    expect(payload.server).toBe('linear');
+    expect(payload.issue.kind).toBe('offline');
+    expect(process.exitCode).toBe(1);
 
     logSpy.mockRestore();
     errorSpy.mockRestore();

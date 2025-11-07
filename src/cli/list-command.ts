@@ -1,5 +1,6 @@
 import ora from 'ora';
 import type { ServerDefinition } from '../config.js';
+import type { ConnectionIssue } from '../error-classifier.js';
 import type { EphemeralServerSpec } from './adhoc-server.js';
 import { extractEphemeralServerFlags } from './ephemeral-flags.js';
 import { prepareEphemeralServerTarget } from './ephemeral-target.js';
@@ -18,10 +19,12 @@ export function extractListFlags(args: string[]): {
   timeoutMs?: number;
   requiredOnly: boolean;
   ephemeral?: EphemeralServerSpec;
+  format: 'text' | 'json';
 } {
   let schema = false;
   let timeoutMs: number | undefined;
   let requiredOnly = true;
+  let format: 'text' | 'json' = 'text';
   const ephemeral = extractEphemeralServerFlags(args);
   let index = 0;
   while (index < args.length) {
@@ -44,9 +47,14 @@ export function extractListFlags(args: string[]): {
       timeoutMs = consumeTimeoutFlag(args, index, { flagName: '--timeout' });
       continue;
     }
+    if (token === '--json') {
+      format = 'json';
+      args.splice(index, 1);
+      continue;
+    }
     index += 1;
   }
-  return { schema, timeoutMs, requiredOnly, ephemeral };
+  return { schema, timeoutMs, requiredOnly, ephemeral, format };
 }
 
 export async function handleList(
@@ -76,26 +84,40 @@ export async function handleList(
     const perServerTimeoutSeconds = Math.round(perServerTimeoutMs / 1000);
 
     if (servers.length === 0) {
-      console.log('No MCP servers configured.');
+      if (flags.format === 'json') {
+        const payload = {
+          mode: 'list',
+          counts: createEmptyStatusCounts(),
+          servers: [] as ListJsonServerEntry[],
+        };
+        console.log(JSON.stringify(payload, null, 2));
+      } else {
+        console.log('No MCP servers configured.');
+      }
       return;
     }
 
-    console.log(`Listing ${servers.length} server(s) (per-server timeout: ${perServerTimeoutSeconds}s)`);
-    const spinner = supportsSpinner ? ora(`Discovering ${servers.length} server(s)…`).start() : undefined;
-    const spinnerActive = Boolean(spinner);
-    // Track rendered rows separately so we can show live progress yet still build an ordered footer summary afterward.
-    const renderedResults: Array<ReturnType<typeof renderServerListRow> | undefined> = Array.from(
+    if (flags.format === 'text') {
+      console.log(`Listing ${servers.length} server(s) (per-server timeout: ${perServerTimeoutSeconds}s)`);
+    }
+    const spinner =
+      flags.format === 'text' && supportsSpinner ? ora(`Discovering ${servers.length} server(s)…`).start() : undefined;
+    const renderedResults =
+      flags.format === 'text'
+        ? (Array.from({ length: servers.length }, () => undefined) as Array<
+            ReturnType<typeof renderServerListRow> | undefined
+          >)
+        : undefined;
+    const summaryResults: Array<ListSummaryResult | undefined> = Array.from(
       { length: servers.length },
       () => undefined
     );
     let completedCount = 0;
 
-    // Kick off every list request up-front so slow servers don't block faster ones.
     const tasks = servers.map((server, index) =>
       (async (): Promise<ListSummaryResult> => {
         const startedAt = Date.now();
         try {
-          // autoAuthorize=false keeps the list command purely observational—no auth prompts mid-run.
           const tools = await withTimeout(runtime.listTools(server.name, { autoAuthorize: false }), perServerTimeoutMs);
           return {
             server,
@@ -112,48 +134,56 @@ export async function handleList(
           };
         }
       })().then((result) => {
-        const rendered = renderServerListRow(result, perServerTimeoutMs);
-        // Persist results in the original index so the final summary prints in config order, even though tasks resolve out of order.
-        renderedResults[index] = rendered;
-        completedCount += 1;
-
-        if (spinnerActive && spinner) {
-          spinner.stop();
-          console.log(rendered.line);
-          const remaining = servers.length - completedCount;
-          if (remaining > 0) {
-            // Switch the spinner to a count-only message so we avoid re-printing the last server name over and over.
-            spinner.text = `Listing servers… ${completedCount}/${servers.length}`;
-            spinner.start();
+        summaryResults[index] = result;
+        if (renderedResults) {
+          const rendered = renderServerListRow(result, perServerTimeoutMs);
+          renderedResults[index] = rendered;
+          completedCount += 1;
+          if (spinner) {
+            spinner.stop();
+            console.log(rendered.line);
+            const remaining = servers.length - completedCount;
+            if (remaining > 0) {
+              spinner.text = `Listing servers… ${completedCount}/${servers.length}`;
+              spinner.start();
+            }
+          } else {
+            console.log(rendered.line);
           }
-        } else {
-          console.log(rendered.line);
         }
-
         return result;
       })
     );
 
     await Promise.all(tasks);
 
-    const errorCounts: Record<StatusCategory, number> = {
-      ok: 0,
-      auth: 0,
-      offline: 0,
-      http: 0,
-      error: 0,
-    };
-    renderedResults.forEach((entry) => {
+    if (flags.format === 'json') {
+      const jsonEntries = summaryResults.map((entry, index) => {
+        const serverDefinition = servers[index] ?? entry?.server ?? servers[0];
+        if (!serverDefinition) {
+          throw new Error('Unable to resolve server definition for JSON output.');
+        }
+        const normalizedEntry = entry ?? createUnknownResult(serverDefinition);
+        return buildJsonListEntry(normalizedEntry, perServerTimeoutSeconds, {
+          includeSchemas: Boolean(flags.schema),
+        });
+      });
+      const counts = summarizeStatusCounts(jsonEntries);
+      console.log(JSON.stringify({ mode: 'list', counts, servers: jsonEntries }, null, 2));
+      return;
+    }
+
+    if (spinner) {
+      spinner.stop();
+    }
+    const errorCounts = createEmptyStatusCounts();
+    renderedResults?.forEach((entry) => {
       if (!entry) {
         return;
       }
-      // Default anything unexpected to the error bucket so the footer still surfaces that something went wrong.
-      const category = (entry as { category?: StatusCategory }).category ?? 'error';
+      const category = entry.category ?? 'error';
       errorCounts[category] = (errorCounts[category] ?? 0) + 1;
     });
-    if (spinnerActive && spinner) {
-      spinner.stop();
-    }
     const okSummary = `${errorCounts.ok} healthy`;
     const parts = [
       okSummary,
@@ -177,11 +207,51 @@ export async function handleList(
     definition.source?.kind === 'import' || definition.source?.kind === 'local'
       ? formatSourceSuffix(definition.source, true)
       : undefined;
-  const transportSummary =
-    definition.command.kind === 'http'
-      ? `HTTP ${definition.command.url instanceof URL ? definition.command.url.href : String(definition.command.url)}`
-      : `STDIO ${[definition.command.command, ...(definition.command.args ?? [])].join(' ')}`.trim();
+  const transportSummary = formatTransportSummary(definition);
   const startedAt = Date.now();
+  if (flags.format === 'json') {
+    try {
+      const metadataEntries = await withTimeout(loadToolMetadata(runtime, target, { includeSchema: true }), timeoutMs);
+      const durationMs = Date.now() - startedAt;
+      const payload = {
+        mode: 'server',
+        name: definition.name,
+        status: 'ok' as StatusCategory,
+        durationMs,
+        description: definition.description,
+        transport: transportSummary,
+        source: definition.source,
+        tools: metadataEntries.map((entry) => ({
+          name: entry.tool.name,
+          description: entry.tool.description,
+          inputSchema: entry.tool.inputSchema,
+          outputSchema: entry.tool.outputSchema,
+          options: entry.options,
+        })),
+      };
+      console.log(JSON.stringify(payload, null, 2));
+      return;
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      const authCommand = buildAuthCommandHint(definition);
+      const advice = classifyListError(error, definition.name, timeoutMs, { authCommand });
+      const payload = {
+        mode: 'server',
+        name: definition.name,
+        status: advice.category,
+        durationMs,
+        description: definition.description,
+        transport: transportSummary,
+        source: definition.source,
+        issue: advice.issue,
+        authCommand: advice.authCommand,
+        error: advice.summary,
+      };
+      console.log(JSON.stringify(payload, null, 2));
+      process.exitCode = 1;
+      return;
+    }
+  }
   try {
     // Always request schemas so we can render CLI-style parameter hints without re-querying per tool.
     const metadataEntries = await withTimeout(loadToolMetadata(runtime, target, { includeSchema: true }), timeoutMs);
@@ -320,6 +390,106 @@ function printToolDetail(
   return {
     examples: doc.examples,
     optionalOmitted: doc.hiddenOptions.length > 0,
+  };
+}
+
+function formatTransportSummary(
+  definition: ReturnType<Awaited<ReturnType<typeof import('../runtime.js')['createRuntime']>>['getDefinition']>
+): string {
+  if (definition.command.kind === 'http') {
+    const url = definition.command.url instanceof URL ? definition.command.url.href : String(definition.command.url);
+    return `HTTP ${url}`;
+  }
+  const rendered = [definition.command.command, ...(definition.command.args ?? [])].join(' ').trim();
+  return `STDIO ${rendered}`;
+}
+
+interface ListJsonServerEntry {
+  name: string;
+  status: StatusCategory;
+  durationMs: number;
+  description?: string;
+  transport?: string;
+  source?: ServerDefinition['source'];
+  tools?: Array<{
+    name: string;
+    description?: string;
+    inputSchema?: unknown;
+    outputSchema?: unknown;
+  }>;
+  issue?: ConnectionIssue;
+  authCommand?: string;
+  error?: string;
+}
+
+function createEmptyStatusCounts(): Record<StatusCategory, number> {
+  return {
+    ok: 0,
+    auth: 0,
+    offline: 0,
+    http: 0,
+    error: 0,
+  };
+}
+
+function summarizeStatusCounts(entries: ListJsonServerEntry[]): Record<StatusCategory, number> {
+  const counts = createEmptyStatusCounts();
+  entries.forEach((entry) => {
+    counts[entry.status] = (counts[entry.status] ?? 0) + 1;
+  });
+  return counts;
+}
+
+function buildJsonListEntry(
+  result: ListSummaryResult,
+  timeoutSeconds: number,
+  options: { includeSchemas: boolean }
+): ListJsonServerEntry {
+  if (result.status === 'ok') {
+    return {
+      name: result.server.name,
+      status: 'ok',
+      durationMs: result.durationMs,
+      description: result.server.description,
+      transport: formatTransportSummary(
+        result.server as ReturnType<
+          Awaited<ReturnType<typeof import('../runtime.js')['createRuntime']>>['getDefinition']
+        >
+      ),
+      source: result.server.source,
+      tools: result.tools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: options.includeSchemas ? tool.inputSchema : undefined,
+        outputSchema: options.includeSchemas ? tool.outputSchema : undefined,
+      })),
+    };
+  }
+  const authCommand = buildAuthCommandHint(
+    result.server as ReturnType<Awaited<ReturnType<typeof import('../runtime.js')['createRuntime']>>['getDefinition']>
+  );
+  const advice = classifyListError(result.error, result.server.name, timeoutSeconds, { authCommand });
+  return {
+    name: result.server.name,
+    status: advice.category,
+    durationMs: result.durationMs,
+    description: result.server.description,
+    transport: formatTransportSummary(
+      result.server as ReturnType<Awaited<ReturnType<typeof import('../runtime.js')['createRuntime']>>['getDefinition']>
+    ),
+    source: result.server.source,
+    issue: advice.issue,
+    authCommand: advice.authCommand,
+    error: advice.summary,
+  };
+}
+
+function createUnknownResult(server: ServerDefinition): ListSummaryResult {
+  return {
+    status: 'error',
+    server,
+    error: new Error('Unknown server result'),
+    durationMs: 0,
   };
 }
 

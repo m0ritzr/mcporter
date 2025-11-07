@@ -1,3 +1,5 @@
+import { analyzeConnectionError, type ConnectionIssue } from './error-classifier.js';
+
 export interface CallResult<T = unknown> {
   raw: T;
   text(joiner?: string): string | null;
@@ -201,6 +203,12 @@ export function createCallResult<T = unknown>(raw: T): CallResult<T> {
       return extractStructuredContent(raw);
     },
   };
+}
+
+export type { ConnectionIssue } from './error-classifier.js';
+
+export function describeConnectionIssue(error: unknown): ConnectionIssue {
+  return analyzeConnectionError(error);
 }
 
 export function wrapCallResult<T = unknown>(raw: T): { raw: T; callResult: CallResult<T> } {
