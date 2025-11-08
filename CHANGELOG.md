@@ -2,10 +2,12 @@
 
 ## [Unreleased]
 
-### CLI & runtime
-- `mcporter list` now prints copy/pasteable examples for ad-hoc servers by repeating the HTTP URL (with quoting) so the commands shown under `Examples:` actually work before you persist the definition.
+_No changes yet._
 
 ## [0.3.6] - 2025-11-08
+
+### CLI & runtime
+- `mcporter list` now prints copy/pasteable examples for ad-hoc servers by repeating the HTTP URL (with quoting) so the commands shown under `Examples:` actually work before you persist the definition.
 
 ### Code generation
 - Staged the actual dependency directories (`commander`, `mcporter`) directly into the Bun bundler workspace so `npx mcporter generate-cli "npx -y chrome-devtools-mcp" --compile` succeeds even when npm hoists dependencies outside the package (fixes the regression some users still saw with 0.3.5).
