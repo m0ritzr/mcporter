@@ -78,20 +78,15 @@ async function discoverConnectionType(url: string): Promise<CraftConnectionType 
       });
 
       // Infer type based on available tools
-      // Daily notes servers typically have tools like "daily_notes_*"
-      // Doc servers have tools like "blocks_*", "collections_*", etc.
+      // Daily notes servers expose "connection_time_get" - docs don't
       const toolNames = tools.map((t) => t.name);
 
-      const hasDailyNotesTools = toolNames.some(
-        (name) => name.includes('daily_notes') || name.includes('dailyNotes')
-      );
-      const hasDocTools = toolNames.some(
-        (name) => name.includes('blocks') || name.includes('collections') || name.includes('document')
-      );
+      const hasConnectionTimeGet = toolNames.includes('connection_time_get');
 
-      if (hasDailyNotesTools) {
+      if (hasConnectionTimeGet) {
         return 'daily-notes';
-      } else if (hasDocTools) {
+      } else if (toolNames.length > 0) {
+        // If it has tools but not connection_time_get, it's a doc server
         return 'doc';
       }
 
