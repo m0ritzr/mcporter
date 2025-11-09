@@ -1,3 +1,9 @@
+/**
+ * Craft MCP connection management
+ *
+ * Manages user's Craft MCP connections in ~/.craft/config.json
+ */
+
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,8 +25,8 @@ export interface CraftConfig {
   defaultConnection?: string;
 }
 
-const CRAFT_CONFIG_DIR = path.join(os.homedir(), '.craft');
-const CRAFT_CONFIG_PATH = path.join(CRAFT_CONFIG_DIR, 'config.json');
+const CONFIG_DIR = path.join(os.homedir(), '.craft');
+const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
 
 /**
  * Load Craft config from ~/.craft/config.json
@@ -28,10 +34,10 @@ const CRAFT_CONFIG_PATH = path.join(CRAFT_CONFIG_DIR, 'config.json');
  */
 export async function loadCraftConfig(): Promise<CraftConfig> {
   try {
-    const content = await fs.readFile(CRAFT_CONFIG_PATH, 'utf-8');
-    return JSON.parse(content) as CraftConfig;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    const content = await fs.readFile(CONFIG_PATH, 'utf-8');
+    return JSON.parse(content);
+  } catch (error: any) {
+    if (error.code === 'ENOENT') {
       return { connections: [] };
     }
     throw error;
@@ -42,65 +48,56 @@ export async function loadCraftConfig(): Promise<CraftConfig> {
  * Save Craft config to ~/.craft/config.json
  */
 export async function saveCraftConfig(config: CraftConfig): Promise<void> {
-  await fs.mkdir(CRAFT_CONFIG_DIR, { recursive: true });
-  const content = JSON.stringify(config, null, 2) + '\n';
-  await fs.writeFile(CRAFT_CONFIG_PATH, content, 'utf-8');
+  await fs.mkdir(CONFIG_DIR, { recursive: true });
+  await fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf-8');
 }
 
 /**
- * Discover connection type by connecting to the MCP server and inspecting available tools
+ * Auto-discover connection type by connecting and inspecting tools
  */
 async function discoverConnectionType(url: string): Promise<CraftConnectionType | undefined> {
   try {
-    // Create a temporary server definition
-    const tempDefinition: ServerDefinition = {
-      name: `temp-${Date.now()}`,
+    // Create ephemeral server definition
+    const serverDef: ServerDefinition = {
+      name: `__temp_discovery_${Date.now()}`,
       command: {
-        kind: 'http',
+        kind: 'http' as const,
         url: new URL(url),
       },
-      source: { kind: 'local', path: '<temp>' },
     };
 
-    // Create a temporary runtime with this server
+    // Create temporary runtime
     const runtime = await createRuntime({
-      servers: [tempDefinition],
+      servers: [serverDef],
     });
 
     try {
-      // List available tools
-      const tools = await runtime.listTools(tempDefinition.name, {
-        includeSchema: false,
+      // List tools without auto-authorization to avoid OAuth prompts
+      const tools = await runtime.listTools(serverDef.name, {
         autoAuthorize: false,
       });
 
-      // Analyze tool names to determine type
-      const toolNames = tools.map(t => t.name);
+      // Infer type based on available tools
+      // Daily notes servers expose "connection_time_get" - docs don't
+      const toolNames = tools.map((t) => t.name);
 
-      // Check for daily-notes specific tools
-      const hasDailyNotesTools = toolNames.some(name =>
-        name.includes('daily') || name.includes('date')
-      );
+      const hasConnectionTimeGet = toolNames.includes('connection_time_get');
 
-      // Check for doc-specific tools
-      const hasDocTools = toolNames.some(name =>
-        name.includes('document') || name.includes('page') || name.includes('collection')
-      );
-
-      if (hasDailyNotesTools && !hasDocTools) {
+      if (hasConnectionTimeGet) {
         return 'daily-notes';
-      } else if (hasDocTools && !hasDailyNotesTools) {
+      } else if (toolNames.length > 0) {
+        // If it has tools but not connection_time_get, it's a doc server
         return 'doc';
       }
 
-      // If we can't determine, return undefined
       return undefined;
     } finally {
-      await runtime.close(tempDefinition.name);
+      await runtime.close();
     }
   } catch (error) {
-    // If discovery fails, just return undefined
-    console.error(`Warning: Could not auto-discover connection type: ${(error as Error).message}`);
+    // If we can't connect or discover, return undefined
+    // Connection might require OAuth or be temporarily unavailable
+    console.warn(`Warning: Could not auto-discover type for ${url}: ${error}`);
     return undefined;
   }
 }
@@ -113,22 +110,26 @@ export async function addConnection(
   url: string,
   description?: string
 ): Promise<void> {
-  // Validate the URL
+  // Validate URL
   validateCraftUrl(url);
 
-  // Load existing config
   const config = await loadCraftConfig();
 
-  // Check if connection name already exists
-  if (config.connections.some(c => c.name === name)) {
-    throw new Error(`Connection '${name}' already exists. Use a different name or remove the existing connection first.`);
+  // Check if connection already exists
+  if (config.connections.some((c) => c.name === name)) {
+    throw new Error(`Connection '${name}' already exists`);
   }
 
-  // Discover connection type
-  console.log(`Discovering connection type for '${name}'...`);
+  // Auto-discover type
+  console.log(`Discovering connection type for ${name}...`);
   const type = await discoverConnectionType(url);
+  if (type) {
+    console.log(`✓ Detected type: ${type}`);
+  } else {
+    console.log(`⚠ Could not auto-detect type`);
+  }
 
-  // Add the connection
+  // Add connection
   const connection: CraftConnection = {
     name,
     url,
@@ -143,45 +144,34 @@ export async function addConnection(
     config.defaultConnection = name;
   }
 
-  // Save config
   await saveCraftConfig(config);
-
-  console.log(`✓ Added connection '${name}'${type ? ` (type: ${type})` : ''}`);
-  if (config.defaultConnection === name) {
-    console.log(`✓ Set as default connection`);
-  }
+  console.log(`✓ Added connection '${name}'${config.defaultConnection === name ? ' (default)' : ''}`);
 }
 
 /**
- * Remove a Craft connection
+ * Remove a connection
  */
 export async function removeConnection(name: string): Promise<void> {
   const config = await loadCraftConfig();
 
-  const index = config.connections.findIndex(c => c.name === name);
+  const index = config.connections.findIndex((c) => c.name === name);
   if (index === -1) {
     throw new Error(`Connection '${name}' not found`);
   }
 
   config.connections.splice(index, 1);
 
-  // Update default if we removed it
+  // Update default if needed
   if (config.defaultConnection === name) {
-    config.defaultConnection = config.connections.length > 0
-      ? config.connections[0]?.name
-      : undefined;
+    config.defaultConnection = config.connections[0]?.name;
   }
 
   await saveCraftConfig(config);
-
   console.log(`✓ Removed connection '${name}'`);
-  if (config.defaultConnection) {
-    console.log(`✓ Default connection is now '${config.defaultConnection}'`);
-  }
 }
 
 /**
- * List all Craft connections
+ * List all connections
  */
 export async function listConnections(): Promise<void> {
   const config = await loadCraftConfig();
@@ -193,40 +183,44 @@ export async function listConnections(): Promise<void> {
     return;
   }
 
-  console.log('Craft Connections:\n');
+  console.log('Craft MCP Connections:\n');
 
   for (const conn of config.connections) {
     const isDefault = conn.name === config.defaultConnection;
-    const defaultMarker = isDefault ? ' (default)' : '';
-    const typeInfo = conn.type ? ` [${conn.type}]` : '';
+    const prefix = isDefault ? '→' : ' ';
+    const type = conn.type ? `[${conn.type}]` : '[unknown]';
 
-    console.log(`  ${conn.name}${defaultMarker}${typeInfo}`);
+    console.log(`${prefix} ${conn.name} ${type}`);
     console.log(`    ${conn.url}`);
     if (conn.description) {
       console.log(`    ${conn.description}`);
     }
-    console.log('');
+    console.log();
+  }
+
+  if (config.defaultConnection) {
+    console.log(`Default: ${config.defaultConnection}`);
   }
 }
 
 /**
- * Set a connection as the default
+ * Set default connection
  */
 export async function useConnection(name: string): Promise<void> {
   const config = await loadCraftConfig();
 
-  if (!config.connections.some(c => c.name === name)) {
+  const connection = config.connections.find((c) => c.name === name);
+  if (!connection) {
     throw new Error(`Connection '${name}' not found`);
   }
 
   config.defaultConnection = name;
   await saveCraftConfig(config);
-
   console.log(`✓ Set '${name}' as default connection`);
 }
 
 /**
- * Get the default connection
+ * Get default connection
  */
 export async function getDefaultConnection(): Promise<CraftConnection | null> {
   const config = await loadCraftConfig();
@@ -235,17 +229,16 @@ export async function getDefaultConnection(): Promise<CraftConnection | null> {
     return null;
   }
 
-  const connection = config.connections.find(c => c.name === config.defaultConnection);
-  return connection || null;
+  return config.connections.find((c) => c.name === config.defaultConnection) ?? null;
 }
 
 /**
- * Get a connection by name
+ * Get connection by name
  */
 export async function getConnection(name: string): Promise<CraftConnection> {
   const config = await loadCraftConfig();
 
-  const connection = config.connections.find(c => c.name === name);
+  const connection = config.connections.find((c) => c.name === name);
   if (!connection) {
     throw new Error(`Connection '${name}' not found`);
   }
@@ -254,7 +247,7 @@ export async function getConnection(name: string): Promise<CraftConnection> {
 }
 
 /**
- * Resolve a connection name or use the default
+ * Resolve connection name or use default
  */
 export async function resolveConnection(nameOrDefault?: string): Promise<CraftConnection> {
   if (nameOrDefault) {
@@ -264,9 +257,7 @@ export async function resolveConnection(nameOrDefault?: string): Promise<CraftCo
   const defaultConn = await getDefaultConnection();
   if (!defaultConn) {
     throw new Error(
-      'No default connection set. Use:\n' +
-      '  craft use <name>     # Set a default connection\n' +
-      '  craft add <name> <url>  # Add a new connection'
+      'No default connection set. Use: craft use <name> or specify connection explicitly.'
     );
   }
 

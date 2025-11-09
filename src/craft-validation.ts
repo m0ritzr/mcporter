@@ -1,44 +1,34 @@
 /**
- * Validates that a URL is a valid Craft MCP endpoint
- * @param url - The URL to validate
- * @throws Error if URL is not a valid Craft MCP URL
+ * Craft MCP URL validation
  */
+
 export function validateCraftUrl(url: string): void {
-  let parsedUrl: URL;
+  let parsed: URL;
 
   try {
-    parsedUrl = new URL(url);
-  } catch (error) {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid URL: ${url}`);
+  }
+
+  // Must be from craft.do domain
+  if (!parsed.hostname.endsWith('craft.do')) {
     throw new Error(
-      `Invalid URL: ${url}\n` +
-      `Please provide a valid HTTPS URL to a Craft MCP endpoint.`
+      `Invalid Craft MCP URL. Must be from craft.do domain, got: ${parsed.hostname}`
     );
   }
 
-  // Check protocol is HTTPS
-  if (parsedUrl.protocol !== 'https:') {
+  // Must include /mcp in path
+  if (!parsed.pathname.includes('/mcp')) {
     throw new Error(
-      `Invalid protocol: ${parsedUrl.protocol}\n` +
-      `Craft MCP URLs must use HTTPS protocol.\n` +
-      `Example: https://mcp.craft.do/links/YOUR_LINK_ID/mcp`
+      `Invalid Craft MCP URL. Path must include /mcp, got: ${parsed.pathname}`
     );
   }
 
-  // Check hostname ends with 'craft.do'
-  if (!parsedUrl.hostname.endsWith('craft.do')) {
+  // Must use HTTPS
+  if (parsed.protocol !== 'https:') {
     throw new Error(
-      `Invalid hostname: ${parsedUrl.hostname}\n` +
-      `Craft MCP URLs must be hosted on craft.do domain.\n` +
-      `Example: https://mcp.craft.do/links/YOUR_LINK_ID/mcp`
-    );
-  }
-
-  // Check path includes '/mcp'
-  if (!parsedUrl.pathname.includes('/mcp')) {
-    throw new Error(
-      `Invalid path: ${parsedUrl.pathname}\n` +
-      `Craft MCP URLs must include '/mcp' in the path.\n` +
-      `Example: https://mcp.craft.do/links/YOUR_LINK_ID/mcp`
+      `Invalid Craft MCP URL. Must use HTTPS, got: ${parsed.protocol}`
     );
   }
 }
